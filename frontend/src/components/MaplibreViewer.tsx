@@ -112,10 +112,10 @@ function classifyAircraft(model: string, category?: string): 'heli' | 'turboprop
 
 // --- Smooth position interpolation helpers ---
 // Given heading (degrees) and speed (knots), compute new lat/lng after dt seconds
-function interpolatePosition(lat: number, lng: number, headingDeg: number, speedKnots: number, dtSeconds: number, maxDist = 3704): [number, number] {
+function interpolatePosition(lat: number, lng: number, headingDeg: number, speedKnots: number, dtSeconds: number, maxDist = 0, maxDt = 65): [number, number] {
     if (!speedKnots || speedKnots <= 0 || dtSeconds <= 0) return [lat, lng];
-    // Cap interpolation to max 6 seconds to prevent runaway drift when data is stale
-    const clampedDt = Math.min(dtSeconds, 6);
+    // Cap interpolation time to prevent runaway drift when data is stale
+    const clampedDt = Math.min(dtSeconds, maxDt);
     // 1 knot = 1 nautical mile/hour = 1852 m/h
     const speedMps = speedKnots * 0.5144; // meters per second
     const dist = maxDist > 0 ? Math.min(speedMps * clampedDt, maxDist) : speedMps * clampedDt;
@@ -232,14 +232,15 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
     const [interpTick, setInterpTick] = useState(0);
     const dataTimestamp = useRef<number>(Date.now());
 
-    // Track when flight/ship data actually changes (new fetch arrived)
+    // Track when flight/ship/satellite data actually changes (new fetch arrived)
     useEffect(() => {
         dataTimestamp.current = Date.now();
-    }, [data?.commercial_flights, data?.ships]);
+    }, [data?.commercial_flights, data?.ships, data?.satellites]);
 
-    // Tick every 5s between data refreshes to animate flight positions
+    // Tick every 2s between data refreshes to animate positions
+    // Satellites move ~7km/s so need frequent updates for smooth motion
     useEffect(() => {
-        const timer = setInterval(() => setInterpTick(t => t + 1), 10000);
+        const timer = setInterval(() => setInterpTick(t => t + 1), 2000);
         return () => clearInterval(timer);
     }, []);
 
@@ -499,10 +500,12 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         return [newLng, newLat];
     };
 
-    // Helper: interpolate a satellite's position — reuses interpolatePosition with no distance cap
+    // Helper: interpolate a satellite's position between API updates
+    // Satellites have deterministic orbits so linear interpolation over 60s is accurate
+    // maxDt=65 allows full interval coverage (60s update + 5s buffer)
     const interpSat = (s: any): [number, number] => {
         if (!s.speed_knots || s.speed_knots <= 0 || dtSeconds < 1) return [s.lng, s.lat];
-        const [newLat, newLng] = interpolatePosition(s.lat, s.lng, s.heading || 0, s.speed_knots, dtSeconds, 0);
+        const [newLat, newLng] = interpolatePosition(s.lat, s.lng, s.heading || 0, s.speed_knots, dtSeconds, 0, 65);
         return [newLng, newLat];
     };
 
