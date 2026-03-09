@@ -71,18 +71,21 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
             logger.warning(f"Python requests failed for {url} ({e}), falling back to bash curl...")
             _domain_fail_cache[domain] = time.time()
 
-        # Build curl command string for bash execution
-        header_flags = " ".join(f'-H "{k}: {v}"' for k, v in default_headers.items())
+        # Build curl as argument list — never pass through shell to prevent injection
+        _CURL_PATH = shutil.which("curl") or "curl"
+        cmd = [_CURL_PATH, "-s", "-w", "\n%{http_code}"]
+        for k, v in default_headers.items():
+            cmd += ["-H", f"{k}: {v}"]
         if method == "POST" and json_data:
-            payload = json.dumps(json_data).replace('"', '\\"')
-            curl_cmd = f'curl -s -w "\\n%{{http_code}}" {header_flags} -X POST -H "Content-Type: application/json" -d "{payload}" "{url}"'
-        else:
-            curl_cmd = f'curl -s -w "\\n%{{http_code}}" {header_flags} "{url}"'
+            cmd += ["-X", "POST", "-H", "Content-Type: application/json",
+                    "--data-binary", "@-"]
+        cmd.append(url)
 
         try:
+            stdin_data = json.dumps(json_data) if (method == "POST" and json_data) else None
             res = subprocess.run(
-                [_BASH_PATH, "-c", curl_cmd],
-                capture_output=True, text=True, timeout=timeout + 5
+                cmd, capture_output=True, text=True, timeout=timeout + 5,
+                input=stdin_data
             )
             if res.returncode == 0 and res.stdout.strip():
                 # Parse HTTP status code from -w output (last line)
