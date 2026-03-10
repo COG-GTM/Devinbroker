@@ -759,6 +759,11 @@ def fetch_flights():
                     speed_knots = round(gs_knots, 1) if isinstance(gs_knots, (int, float)) else None
 
                     model_upper = f.get("t", "").upper()
+
+                    # Skip fixed structures (towers, oil platforms) that broadcast ADS-B
+                    if model_upper == "TWR":
+                        continue
+
                     ac_category = "heli" if model_upper in _HELI_TYPES_BACKEND else "plane"
 
                     flights.append({
@@ -1129,6 +1134,11 @@ def fetch_military_flights():
                         continue
                         
                     model = str(f.get("t", "UNKNOWN")).upper()
+
+                    # Skip fixed structures (towers, oil platforms) that broadcast ADS-B
+                    if model == "TWR":
+                        continue
+
                     mil_cat = "default"
                     if "H" in model and any(c.isdigit() for c in model):
                         mil_cat = "heli"
