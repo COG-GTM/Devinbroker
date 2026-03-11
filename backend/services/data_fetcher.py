@@ -15,6 +15,7 @@ import threading
 import io
 from apscheduler.schedulers.background import BackgroundScheduler
 import concurrent.futures
+import heapq
 from sgp4.api import Satrec, WGS72
 from sgp4.api import jday
 from datetime import datetime
@@ -81,6 +82,25 @@ opensky_client = OpenSkyClient(
 last_opensky_fetch = 0
 cached_opensky_flights = []
 
+# ---------------------------------------------------------------------------
+# Supplemental ADS-B sources for blind-spot gap-filling (Russia/China/Africa)
+# These aggregators have different feeder pools than adsb.lol and can surface
+# aircraft invisible to our primary source.  Only gap-fill planes are kept.
+# ---------------------------------------------------------------------------
+_BLIND_SPOT_REGIONS = [
+    {"name": "Yekaterinburg",  "lat": 56.8, "lon": 60.6,  "radius_nm": 250},
+    {"name": "Novosibirsk",   "lat": 55.0, "lon": 82.9,  "radius_nm": 250},
+    {"name": "Krasnoyarsk",   "lat": 56.0, "lon": 92.9,  "radius_nm": 250},
+    {"name": "Vladivostok",   "lat": 43.1, "lon": 131.9, "radius_nm": 250},
+    {"name": "Urumqi",        "lat": 43.8, "lon": 87.6,  "radius_nm": 250},
+    {"name": "Chengdu",       "lat": 30.6, "lon": 104.1, "radius_nm": 250},
+    {"name": "Lagos-Accra",   "lat": 6.5,  "lon": 3.4,   "radius_nm": 250},
+    {"name": "Addis Ababa",   "lat": 9.0,  "lon": 38.7,  "radius_nm": 250},
+]
+_SUPPLEMENTAL_FETCH_INTERVAL = 120  # seconds — only query every 2 min
+last_supplemental_fetch = 0
+cached_supplemental_flights = []
+
 
 
 # In-memory store
@@ -122,56 +142,132 @@ def _mark_fresh(*keys):
 _data_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
-# Plane-Alert DB — load tracked aircraft from CSV on startup
+# Plane-Alert DB — load tracked aircraft from JSON on startup
 # ---------------------------------------------------------------------------
 
-# Category → color mapping
-_PINK_CATEGORIES = {
-    "Dictator Alert", "Head of State", "Da Comrade", "Oligarch",
-    "Governments", "Royal Aircraft", "Quango",
-}
-_RED_CATEGORIES = {
-    "Don't you know who I am?", "As Seen on TV", "Joe Cool",
-    "Vanity Plate", "Football", "Bizjets",
-}
-_DARKBLUE_CATEGORIES = {
-    "USAF", "United States Navy", "United States Marine Corps",
-    "Special Forces", "Hired Gun", "Oxcart", "Gunship", "Nuclear",
-    "CAP", "Zoomies",
+# Exact category → color mapping for all 53 known categories.
+# O(1) dict lookup — no keyword scanning, no false positives.
+_CATEGORY_COLOR: dict[str, str] = {
+    # YELLOW — Military / Intelligence / Defense
+    "USAF": "yellow",
+    "Other Air Forces": "yellow",
+    "Toy Soldiers": "yellow",
+    "Oxcart": "yellow",
+    "United States Navy": "yellow",
+    "GAF": "yellow",
+    "Hired Gun": "yellow",
+    "United States Marine Corps": "yellow",
+    "Gunship": "yellow",
+    "RAF": "yellow",
+    "Other Navies": "yellow",
+    "Special Forces": "yellow",
+    "Zoomies": "yellow",
+    "Royal Navy Fleet Air Arm": "yellow",
+    "Army Air Corps": "yellow",
+    "Aerobatic Teams": "yellow",
+    "UAV": "yellow",
+    "Ukraine": "yellow",
+    "Nuclear": "yellow",
+    # LIME — Emergency / Medical / Rescue / Fire
+    "Flying Doctors": "#32cd32",
+    "Aerial Firefighter": "#32cd32",
+    "Coastguard": "#32cd32",
+    # BLUE — Government / Law Enforcement / Civil
+    "Police Forces": "blue",
+    "Governments": "blue",
+    "Quango": "blue",
+    "UK National Police Air Service": "blue",
+    "CAP": "blue",
+    # BLACK — Privacy / PIA
+    "PIA": "black",
+    # RED — Dictator / Oligarch
+    "Dictator Alert": "red",
+    "Da Comrade": "red",
+    "Oligarch": "red",
+    # HOT PINK — High Value Assets / VIP / Celebrity
+    "Head of State": "#ff1493",
+    "Royal Aircraft": "#ff1493",
+    "Don't you know who I am?": "#ff1493",
+    "As Seen on TV": "#ff1493",
+    "Bizjets": "#ff1493",
+    "Vanity Plate": "#ff1493",
+    "Football": "#ff1493",
+    # ORANGE — Joe Cool
+    "Joe Cool": "orange",
+    # WHITE — Climate Crisis
+    "Climate Crisis": "white",
+    # PURPLE — General Tracked / Other Notable
+    "Historic": "purple",
+    "Jump Johnny Jump": "purple",
+    "Ptolemy would be proud": "purple",
+    "Distinctive": "purple",
+    "Dogs with Jobs": "purple",
+    "You came here in that thing?": "purple",
+    "Big Hello": "purple",
+    "Watch Me Fly": "purple",
+    "Perfectly Serviceable Aircraft": "purple",
+    "Jesus he Knows me": "purple",
+    "Gas Bags": "purple",
+    "Radiohead": "purple",
 }
 
 def _category_to_color(cat: str) -> str:
-    if cat in _PINK_CATEGORIES:
-        return "pink"
-    if cat in _RED_CATEGORIES:
-        return "red"
-    if cat in _DARKBLUE_CATEGORIES:
-        return "darkblue"
-    return "white"
+    """O(1) exact lookup. Unknown categories default to purple."""
+    return _CATEGORY_COLOR.get(cat, "purple")
 
-# Load once on module import
-_PLANE_ALERT_DB: dict = {}  # uppercase ICAO hex → dict of aircraft info
+_PLANE_ALERT_DB: dict = {}
+
+# ---------------------------------------------------------------------------
+# POTUS Fleet — override colors and operator names for presidential aircraft.
+# These are hardcoded ICAO hexes verified against FAA registry + plane-alert.
+# ---------------------------------------------------------------------------
+_POTUS_FLEET: dict[str, dict] = {
+    # Air Force One — Boeing VC-25A (747-200B)
+    "ADFDF8": {"color": "#ff1493", "operator": "Air Force One (82-8000)", "category": "Head of State", "wiki": "Air_Force_One", "fleet": "AF1"},
+    "ADFDF9": {"color": "#ff1493", "operator": "Air Force One (92-9000)", "category": "Head of State", "wiki": "Air_Force_One", "fleet": "AF1"},
+    # Air Force Two — Boeing C-32A (757-200)
+    "ADFEB7": {"color": "blue", "operator": "Air Force Two (98-0001)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "ADFEB8": {"color": "blue", "operator": "Air Force Two (98-0002)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "ADFEB9": {"color": "blue", "operator": "Air Force Two (99-0003)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "ADFEBA": {"color": "blue", "operator": "Air Force Two (99-0004)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "AE4AE6": {"color": "blue", "operator": "Air Force Two (09-0015)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "AE4AE8": {"color": "blue", "operator": "Air Force Two (09-0016)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "AE4AEA": {"color": "blue", "operator": "Air Force Two (09-0017)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    "AE4AEC": {"color": "blue", "operator": "Air Force Two (19-0018)", "category": "Governments", "wiki": "Air_Force_Two", "fleet": "AF2"},
+    # Marine One — VH-3D Sea King / VH-92A Patriot
+    "AE0865": {"color": "#ff1493", "operator": "Marine One (VH-3D)", "category": "Head of State", "wiki": "Marine_One", "fleet": "M1"},
+    "AE5E76": {"color": "#ff1493", "operator": "Marine One (VH-92A)", "category": "Head of State", "wiki": "Marine_One", "fleet": "M1"},
+    "AE5E77": {"color": "#ff1493", "operator": "Marine One (VH-92A)", "category": "Head of State", "wiki": "Marine_One", "fleet": "M1"},
+    "AE5E79": {"color": "#ff1493", "operator": "Marine One (VH-92A)", "category": "Head of State", "wiki": "Marine_One", "fleet": "M1"},
+}
 
 def _load_plane_alert_db():
-    """Parse plane_alert_db.json into a dict keyed by uppercase ICAO hex."""
+    """Load plane_alert_db.json (exported from SQLite) into memory."""
     global _PLANE_ALERT_DB
-    import json
     json_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "data", "plane_alert_db.json"
     )
     if not os.path.exists(json_path):
-        logger.warning(f"Plane-Alert JSON DB not found at {json_path}")
+        logger.warning(f"Plane-Alert DB not found at {json_path}")
         return
     try:
         with open(json_path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-            for icao_hex, info in data.items():
-                info["color"] = _category_to_color(info.get("category", ""))
-                _PLANE_ALERT_DB[icao_hex] = info
-        logger.info(f"Plane-Alert JSON DB loaded: {len(_PLANE_ALERT_DB)} aircraft")
+            raw = json.load(fh)
+        for icao_hex, info in raw.items():
+            info["color"] = _category_to_color(info.get("category", ""))
+            # Apply POTUS fleet overrides (correct colors + clean operator names)
+            override = _POTUS_FLEET.get(icao_hex)
+            if override:
+                info["color"] = override["color"]
+                info["operator"] = override["operator"]
+                info["category"] = override["category"]
+                info["wiki"] = override.get("wiki", "")
+                info["potus_fleet"] = override.get("fleet", "")
+            _PLANE_ALERT_DB[icao_hex] = info
+        logger.info(f"Plane-Alert DB loaded: {len(_PLANE_ALERT_DB)} aircraft")
     except Exception as e:
-        logger.error(f"Failed to load Plane-Alert JSON DB: {e}")
+        logger.error(f"Failed to load Plane-Alert DB: {e}")
 
 _load_plane_alert_db()
 
@@ -184,11 +280,12 @@ def enrich_with_plane_alert(flight: dict) -> dict:
         flight["alert_color"] = info["color"]
         flight["alert_operator"] = info["operator"]
         flight["alert_type"] = info["ac_type"]
-        flight["alert_tag1"] = info["tag1"]
-        flight["alert_tag2"] = info["tag2"]
-        flight["alert_tag3"] = info["tag3"]
+        flight["alert_tags"] = info["tags"]
         flight["alert_link"] = info["link"]
-        # Override registration if DB has a better one
+        if info.get("wiki"):
+            flight["alert_wiki"] = info["wiki"]
+        if info.get("potus_fleet"):
+            flight["potus_fleet"] = info["potus_fleet"]
         if info["registration"]:
             flight["registration"] = info["registration"]
 
@@ -225,21 +322,37 @@ _load_tracked_names()
 
 def enrich_with_tracked_names(flight: dict) -> dict:
     """If flight's registration matches our Excel extraction, tag it as tracked."""
+    # POTUS fleet overrides are authoritative — never let Excel overwrite them
+    icao = flight.get("icao24", "").strip().upper()
+    if icao in _POTUS_FLEET:
+        return flight
+
     reg = flight.get("registration", "").strip().upper()
     callsign = flight.get("callsign", "").strip().upper()
-    
+
     match = None
     if reg and reg in _TRACKED_NAMES_DB:
         match = _TRACKED_NAMES_DB[reg]
     elif callsign and callsign in _TRACKED_NAMES_DB:
         match = _TRACKED_NAMES_DB[callsign]
-        
+
     if match:
-        # Don't overwrite Plane-Alert DB operator if it exists unless we want Excel to take precedence.
-        # Let's let Excel take precedence as it has cleaner individual names (e.g. Elon Musk instead of FALCON LANDING LLC).
-        flight["alert_operator"] = match["name"]
+        name = match["name"]
+        # Let Excel take precedence as it has cleaner individual names (e.g. Elon Musk instead of FALCON LANDING LLC).
+        flight["alert_operator"] = name
         flight["alert_category"] = match["category"]
-        if "alert_color" not in flight:
+        
+        # Override pink default if the name implies a specific function
+        name_lower = name.lower()
+        is_gov = any(w in name_lower for w in ['state of ', 'government', 'republic', 'ministry', 'department', 'federal', 'cia'])
+        is_law = any(w in name_lower for w in ['police', 'marshal', 'sheriff', 'douane', 'customs', 'patrol', 'gendarmerie', 'guardia', 'law enforcement'])
+        is_med = any(w in name_lower for w in ['fire', 'bomberos', 'ambulance', 'paramedic', 'medevac', 'rescue', 'hospital', 'medical', 'lifeflight'])
+        
+        if is_gov or is_law:
+            flight["alert_color"] = "blue"
+        elif is_med:
+            flight["alert_color"] = "#32cd32"  # lime
+        elif "alert_color" not in flight:
             flight["alert_color"] = "pink"
 
     return flight
@@ -480,27 +593,31 @@ def fetch_news():
     latest_data['news'] = news_items
     _mark_fresh("news")
 
+def _fetch_single_ticker(symbol: str, period: str = "2d"):
+    """Fetch a single yfinance ticker. Returns (symbol, data_dict) or (symbol, None)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period)
+        if len(hist) >= 1:
+            current_price = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[0] if len(hist) > 1 else current_price
+            change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
+            return symbol, {
+                "price": round(float(current_price), 2),
+                "change_percent": round(float(change_percent), 2),
+                "up": bool(change_percent >= 0)
+            }
+    except Exception as e:
+        logger.warning(f"Could not fetch data for {symbol}: {e}")
+    return symbol, None
+
+
 def fetch_defense_stocks():
     tickers = ["RTX", "LMT", "NOC", "GD", "BA", "PLTR"]
-    stocks_data = {}
     try:
-        for t in tickers:
-            try:
-                ticker = yf.Ticker(t)
-                hist = ticker.history(period="2d")
-                if len(hist) >= 1:
-                    current_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[0] if len(hist) > 1 else current_price
-                    change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
-                    
-                    stocks_data[t] = {
-                        "price": round(float(current_price), 2),
-                        "change_percent": round(float(change_percent), 2),
-                        "up": bool(change_percent >= 0)
-                    }
-            except Exception as e:
-                logger.warning(f"Could not fetch data for {t}: {e}")
-                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = pool.map(lambda t: _fetch_single_ticker(t, "2d"), tickers)
+        stocks_data = {sym: data for sym, data in results if data}
         latest_data['stocks'] = stocks_data
         _mark_fresh("stocks")
     except Exception as e:
@@ -509,25 +626,10 @@ def fetch_defense_stocks():
 def fetch_oil_prices():
     # CL=F is Crude Oil, BZ=F is Brent Crude
     tickers = {"WTI Crude": "CL=F", "Brent Crude": "BZ=F"}
-    oil_data = {}
     try:
-        for name, symbol in tickers.items():
-            try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="5d")
-                if len(hist) >= 2:
-                    current_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[-2]
-                    change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
-                    
-                    oil_data[name] = {
-                        "price": round(float(current_price), 2),
-                        "change_percent": round(float(change_percent), 2),
-                        "up": bool(change_percent >= 0)
-                    }
-            except Exception as e:
-                logger.warning(f"Could not fetch data for {symbol}: {e}")
-                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = pool.map(lambda item: (_fetch_single_ticker(item[1], "5d")[1], item[0]), tickers.items())
+        oil_data = {name: data for data, name in results if data}
         latest_data['oil'] = oil_data
         _mark_fresh("oil")
     except Exception as e:
@@ -611,6 +713,87 @@ _HELI_TYPES_BACKEND = {
     "MD52", "MD60", "MDHI", "MD90", "NOTR",
     "B47G", "HUEY", "GAMA", "CABR", "EXE",
 }
+
+
+def _fetch_supplemental_sources(seen_hex: set) -> list:
+    """Fetch from airplanes.live and adsb.fi to fill blind-spot gaps.
+
+    Only returns aircraft whose ICAO hex is NOT already in seen_hex.
+    Throttled to run every _SUPPLEMENTAL_FETCH_INTERVAL seconds.
+    Fully wrapped in try/except — returns [] on any failure.
+    """
+    global last_supplemental_fetch, cached_supplemental_flights
+
+    now = time.time()
+    if now - last_supplemental_fetch < _SUPPLEMENTAL_FETCH_INTERVAL:
+        # Return cached results, but still filter against current seen_hex
+        return [f for f in cached_supplemental_flights
+                if f.get("hex", "").lower().strip() not in seen_hex]
+
+    new_supplemental = []
+    supplemental_hex = set()  # track hex within supplemental to avoid internal dupes
+
+    # --- airplanes.live (parallel, all hotspots) ---
+    def _fetch_airplaneslive(region):
+        try:
+            url = (f"https://api.airplanes.live/v2/point/"
+                   f"{region['lat']}/{region['lon']}/{region['radius_nm']}")
+            res = fetch_with_curl(url, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("ac", [])
+        except Exception as e:
+            logger.debug(f"airplanes.live {region['name']} failed: {e}")
+        return []
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(_fetch_airplaneslive, _BLIND_SPOT_REGIONS))
+        for region_flights in results:
+            for f in region_flights:
+                h = f.get("hex", "").lower().strip()
+                if h and h not in seen_hex and h not in supplemental_hex:
+                    f["supplemental_source"] = "airplanes.live"
+                    new_supplemental.append(f)
+                    supplemental_hex.add(h)
+    except Exception as e:
+        logger.warning(f"airplanes.live supplemental fetch failed: {e}")
+
+    ap_count = len(new_supplemental)
+
+    # --- adsb.fi (sequential, 1.1s between requests to respect 1 req/sec limit) ---
+    try:
+        for region in _BLIND_SPOT_REGIONS:
+            try:
+                url = (f"https://opendata.adsb.fi/api/v3/lat/"
+                       f"{region['lat']}/lon/{region['lon']}/dist/{region['radius_nm']}")
+                res = fetch_with_curl(url, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    for f in data.get("ac", []):
+                        h = f.get("hex", "").lower().strip()
+                        if h and h not in seen_hex and h not in supplemental_hex:
+                            f["supplemental_source"] = "adsb.fi"
+                            new_supplemental.append(f)
+                            supplemental_hex.add(h)
+            except Exception as e:
+                logger.debug(f"adsb.fi {region['name']} failed: {e}")
+            time.sleep(1.1)  # Rate limit: 1 req/sec
+    except Exception as e:
+        logger.warning(f"adsb.fi supplemental fetch failed: {e}")
+
+    fi_count = len(new_supplemental) - ap_count
+
+    cached_supplemental_flights = new_supplemental
+    last_supplemental_fetch = now
+    if new_supplemental:
+        _mark_fresh("supplemental_flights")
+
+    logger.info(f"Supplemental: +{len(new_supplemental)} new aircraft from blind-spot "
+                f"hotspots (airplanes.live: {ap_count}, adsb.fi: {fi_count})")
+
+    return new_supplemental
+
 
 def fetch_flights():
     # OpenSky Network public API for flights. We want to demonstrate global coverage.
@@ -712,7 +895,22 @@ def fetch_flights():
                 all_adsb_flights.append(osf)
                 seen_hex.add(h.lower().strip())
 
-                    
+        # -------------------------------------------------------------------
+        # Supplemental Sources: airplanes.live + adsb.fi (blind-spot gap-fill)
+        # Only adds aircraft whose ICAO hex is NOT already in seen_hex.
+        # -------------------------------------------------------------------
+        try:
+            gap_fill = _fetch_supplemental_sources(seen_hex)
+            for f in gap_fill:
+                all_adsb_flights.append(f)
+                h = f.get("hex", "").lower().strip()
+                if h:
+                    seen_hex.add(h)
+            if gap_fill:
+                logger.info(f"Gap-fill: added {len(gap_fill)} aircraft to pipeline")
+        except Exception as e:
+            logger.warning(f"Supplemental source fetch failed (non-fatal): {e}")
+
         if all_adsb_flights:
             
             # The user requested maximum flight density. Rendering all available aircraft.
@@ -1333,9 +1531,8 @@ def fetch_firms_fires():
                     })
                 except (ValueError, TypeError):
                     continue
-            # Sort by FRP descending, keep top 5000 (most intense fires first)
-            all_rows.sort(key=lambda x: x["frp"], reverse=True)
-            fires = all_rows[:5000]
+            # Keep top 5000 by FRP (most intense fires first) — heapq is O(n) vs O(n log n) sort
+            fires = heapq.nlargest(5000, all_rows, key=lambda x: x["frp"])
         logger.info(f"FIRMS fires: {len(fires)} hotspots (from {response.status_code})")
     except Exception as e:
         logger.error(f"Error fetching FIRMS fires: {e}")
@@ -1471,9 +1668,8 @@ def fetch_internet_outages():
                     r["lat"] = coords[0]
                     r["lng"] = coords[1]
                     geocoded.append(r)
-            # Sort by severity descending, cap at 100
-            geocoded.sort(key=lambda x: x["severity"], reverse=True)
-            outages = geocoded[:100]
+            # Keep top 100 by severity
+            outages = heapq.nlargest(100, geocoded, key=lambda x: x["severity"])
         logger.info(f"Internet outages: {len(outages)} regions affected")
     except Exception as e:
         logger.error(f"Error fetching internet outages: {e}")
@@ -2219,8 +2415,8 @@ def start_scheduler():
     scheduler.add_job(update_liveuamap, 'date', run_date=datetime.now())
     scheduler.add_job(update_liveuamap, 'interval', hours=12)
     
-    # Geopolitics (frontlines) more frequently than other slow data
-    scheduler.add_job(fetch_geopolitics, 'interval', minutes=5)
+    # Geopolitics (frontlines) aligned with slow-data tier
+    scheduler.add_job(fetch_geopolitics, 'interval', minutes=30)
     
     scheduler.start()
 

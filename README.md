@@ -9,7 +9,11 @@
 ---
 
 
-![560645594-989008ee-c690-4cc0-aade-14c24ca82874](https://github.com/user-attachments/assets/5a879552-327f-4f66-81e9-4ae1cec9c468)
+
+
+https://github.com/user-attachments/assets/248208ec-62f7-49d1-831d-4bd0a1fa6852
+
+
 
 
 
@@ -21,7 +25,7 @@ Built with **Next.js**, **MapLibre GL**, **FastAPI**, and **Python**, it's desig
 
 ## Interesting Use Cases
 
-* Track private jets of billionaires
+* Track everything from Air Force One to the private jets of billionaires, dictators, and corporations
 * Monitor satellites passing overhead and see high-resolution satellite imagery
 * Nose around local emergency scanners
 * Watch naval traffic worldwide

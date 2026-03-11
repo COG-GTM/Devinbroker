@@ -1,12 +1,44 @@
 {
   "feeds": [
-    { "name": "NPR", "url": "https://feeds.npr.org/1004/rss.xml", "weight": 4 },
-    { "name": "BBC", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "weight": 3 },
-    { "name": "AlJazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml", "weight": 2 },
-    { "name": "NYT", "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "weight": 1 },
-    { "name": "GDACS", "url": "https://www.gdacs.org/xml/rss.xml", "weight": 5 },
-    { "name": "NHK", "url": "https://www3.nhk.or.jp/nhkworld/rss/world.xml", "weight": 3 },
-    { "name": "CNA", "url": "https://www.channelnewsasia.com/rssfeed/8395986", "weight": 3 },
-    { "name": "Mercopress", "url": "https://en.mercopress.com/rss/", "weight": 3 }
+    {
+      "name": "NPR",
+      "url": "https://feeds.npr.org/1004/rss.xml",
+      "weight": 4
+    },
+    {
+      "name": "BBC",
+      "url": "http://feeds.bbci.co.uk/news/world/rss.xml",
+      "weight": 3
+    },
+    {
+      "name": "AlJazeera",
+      "url": "https://www.aljazeera.com/xml/rss/all.xml",
+      "weight": 2
+    },
+    {
+      "name": "NYT",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+      "weight": 1
+    },
+    {
+      "name": "GDACS",
+      "url": "https://www.gdacs.org/xml/rss.xml",
+      "weight": 5
+    },
+    {
+      "name": "NHK",
+      "url": "https://www3.nhk.or.jp/nhkworld/rss/world.xml",
+      "weight": 3
+    },
+    {
+      "name": "CNA",
+      "url": "https://www.channelnewsasia.com/rssfeed/8395986",
+      "weight": 3
+    },
+    {
+      "name": "Mercopress",
+      "url": "https://en.mercopress.com/rss/",
+      "weight": 3
+    }
   ]
 }

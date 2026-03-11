@@ -260,28 +260,40 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
         if (flight) {
             const callsign = flight.callsign || "UNKNOWN";
             const alertColorMap: Record<string, string> = {
-                'pink': 'text-pink-400', 'red': 'text-red-400',
-                'darkblue': 'text-blue-400', 'white': 'text-white'
+                '#ff1493': 'text-[#ff1493]', pink: 'text-[#ff1493]', red: 'text-red-400', yellow: 'text-yellow-400',
+                blue: 'text-blue-400', orange: 'text-orange-400', '#32cd32': 'text-[#32cd32]', purple: 'text-purple-400',
+                black: 'text-gray-400', white: 'text-white'
             };
             const alertBorderMap: Record<string, string> = {
-                'pink': 'border-pink-500/30', 'red': 'border-red-500/30',
-                'darkblue': 'border-blue-500/30', 'white': 'border-[var(--border-primary)]/30'
+                '#ff1493': 'border-[#ff1493]/30', pink: 'border-[#ff1493]/30', red: 'border-red-500/30', yellow: 'border-yellow-500/30',
+                blue: 'border-blue-500/30', orange: 'border-orange-500/30', '#32cd32': 'border-[#32cd32]/30', purple: 'border-purple-500/30',
+                black: 'border-gray-500/30', white: 'border-[var(--border-primary)]/30'
             };
             const alertBgMap: Record<string, string> = {
-                'pink': 'bg-pink-950/40', 'red': 'bg-red-950/40',
-                'darkblue': 'bg-blue-950/40', 'white': 'bg-[var(--bg-panel)]'
+                '#ff1493': 'bg-[#ff1493]/10', pink: 'bg-[#ff1493]/10', red: 'bg-red-950/40', yellow: 'bg-yellow-950/40',
+                blue: 'bg-blue-950/40', orange: 'bg-orange-950/40', '#32cd32': 'bg-lime-950/40', purple: 'bg-purple-950/40',
+                black: 'bg-gray-900/40', white: 'bg-[var(--bg-panel)]'
             };
             const ac = flight.alert_color || 'white';
             const headerColor = alertColorMap[ac] || 'text-white';
             const borderColor = alertBorderMap[ac] || 'border-[var(--border-primary)]/30';
             const bgColor = alertBgMap[ac] || 'bg-[var(--bg-panel)]';
 
+            const shadowColor = (ac === 'pink' || ac === '#ff1493') ? 'rgba(255,20,147,0.4)'
+                : ac === 'red' ? 'rgba(255,32,32,0.2)'
+                : ac === 'yellow' ? 'rgba(255,255,0,0.2)'
+                : ac === 'blue' ? 'rgba(59,130,246,0.2)'
+                : ac === 'orange' ? 'rgba(255,140,0,0.3)'
+                : ac === '#32cd32' ? 'rgba(50,205,50,0.2)'
+                : ac === 'purple' ? 'rgba(155,89,182,0.2)'
+                : 'rgba(255,255,255,0.1)';
+
             return (
                 <motion.div
                     initial={{ y: 50, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ duration: 0.4 }}
-                    className={`w-full bg-black/60 backdrop-blur-md border ${ac === 'pink' ? 'border-pink-800' : ac === 'red' ? 'border-red-800' : ac === 'darkblue' ? 'border-blue-800' : 'border-[var(--border-secondary)]'} rounded-xl flex flex-col z-10 font-mono shadow-[0_4px_30px_rgba(255,20,147,0.2)] pointer-events-auto overflow-hidden flex-shrink-0`}
+                    className={`w-full bg-black/60 backdrop-blur-md border ${(ac === 'pink' || ac === '#ff1493') ? 'border-[#ff1493]' : ac === 'red' ? 'border-red-800' : ac === 'yellow' ? 'border-yellow-800' : ac === 'blue' ? 'border-blue-800' : ac === 'orange' ? 'border-orange-800' : ac === '#32cd32' ? 'border-lime-800' : ac === 'purple' ? 'border-purple-800' : 'border-[var(--border-secondary)]'} rounded-xl flex flex-col z-10 font-mono shadow-[0_4px_30px_${shadowColor}] pointer-events-auto overflow-hidden flex-shrink-0`}
                 >
                     <div className={`p-3 border-b ${borderColor} ${bgColor} flex justify-between items-center`}>
                         <h2 className={`text-xs tracking-widest font-bold ${headerColor} flex items-center gap-2`}>
@@ -293,31 +305,39 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                     <div className="p-4 flex flex-col gap-3">
                         <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
                             <span className="text-[var(--text-muted)] text-[10px]">OPERATOR</span>
-                            {flight.alert_operator && flight.alert_operator !== "UNKNOWN" ? (
-                                <a
-                                    href={`https://en.wikipedia.org/wiki/${encodeURIComponent(flight.alert_operator.replace(/ /g, '_'))}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className={`text-xs font-bold underline ${headerColor} hover:opacity-80 transition-opacity`}
-                                    title={`Search Wikipedia for ${flight.alert_operator}`}
-                                >
-                                    {flight.alert_operator}
-                                </a>
-                            ) : (
+                            {flight.alert_operator && flight.alert_operator !== "UNKNOWN" ? (() => {
+                                const wikiSlug = flight.alert_wiki || flight.alert_operator.replace(/\s*\(.*?\)\s*/g, '').trim().replace(/ /g, '_');
+                                const wikiHref = `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiSlug)}`;
+                                return (
+                                    <a
+                                        href={wikiHref}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className={`text-xs font-bold underline ${headerColor} hover:opacity-80 transition-opacity`}
+                                        title={`Search Wikipedia for ${flight.alert_operator}`}
+                                    >
+                                        {flight.alert_operator}
+                                    </a>
+                                );
+                            })() : (
                                 <span className={`text-xs font-bold ${headerColor}`}>UNKNOWN</span>
                             )}
                         </div>
                         {/* Owner/Operator Wikipedia photo */}
-                        {flight.alert_operator && flight.alert_operator !== "UNKNOWN" && (
-                            <div className="border-b border-[var(--border-primary)] pb-2">
-                                <WikiImage
-                                    wikiUrl={`https://en.wikipedia.org/wiki/${encodeURIComponent(flight.alert_operator.replace(/ /g, '_'))}`}
-                                    label={flight.alert_operator}
-                                    maxH="max-h-36"
-                                    accent={ac === 'pink' ? 'hover:border-pink-500/50' : ac === 'red' ? 'hover:border-red-500/50' : 'hover:border-cyan-500/50'}
-                                />
-                            </div>
-                        )}
+                        {flight.alert_operator && flight.alert_operator !== "UNKNOWN" && (() => {
+                            const wikiSlug = flight.alert_wiki || flight.alert_operator.replace(/\s*\(.*?\)\s*/g, '').trim().replace(/ /g, '_');
+                            const wikiHref = `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiSlug)}`;
+                            return (
+                                <div className="border-b border-[var(--border-primary)] pb-2">
+                                    <WikiImage
+                                        wikiUrl={wikiHref}
+                                        label={flight.alert_operator}
+                                        maxH="max-h-36"
+                                        accent={ac === 'pink' ? 'hover:border-pink-500/50' : ac === 'red' ? 'hover:border-red-500/50' : 'hover:border-cyan-500/50'}
+                                    />
+                                </div>
+                            );
+                        })()}
                         {/* Aircraft model Wikipedia photo */}
                         {aircraftImgUrl && (
                             <div className="border-b border-[var(--border-primary)] pb-2">
@@ -348,22 +368,10 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                             <span className="text-[var(--text-muted)] text-[10px]">REGISTRATION</span>
                             <span className="text-[var(--text-primary)] text-xs font-bold">{flight.registration || "N/A"}</span>
                         </div>
-                        {flight.alert_tag1 && (
+                        {flight.alert_tags && (
                             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
-                                <span className="text-[var(--text-muted)] text-[10px]">INTEL TAG</span>
-                                <span className={`text-xs font-bold ${headerColor}`}>{flight.alert_tag1}</span>
-                            </div>
-                        )}
-                        {flight.alert_tag2 && (
-                            <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
-                                <span className="text-[var(--text-muted)] text-[10px]">SECONDARY</span>
-                                <span className="text-[var(--text-primary)] text-xs font-bold">{flight.alert_tag2}</span>
-                            </div>
-                        )}
-                        {flight.alert_tag3 && (
-                            <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
-                                <span className="text-[var(--text-muted)] text-[10px]">DETAIL</span>
-                                <span className="text-[var(--text-secondary)] text-xs">{flight.alert_tag3}</span>
+                                <span className="text-[var(--text-muted)] text-[10px]">INTEL TAGS</span>
+                                <span className={`text-xs font-bold text-right max-w-[200px] ${headerColor}`}>{flight.alert_tags}</span>
                             </div>
                         )}
                         <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
@@ -667,10 +675,34 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                         </div>
                         <div className="flex flex-col gap-2 mt-2">
                             <span className="text-[var(--text-muted)] text-[10px]">LATEST REPORTS:</span>
-                            <div
-                                className="text-[var(--text-primary)] text-xs whitespace-normal [&_a]:text-orange-400 [&_a]:underline hover:[&_a]:text-orange-300 [&_br]:mb-2"
-                                dangerouslySetInnerHTML={{ __html: props.html || 'No articles available.' }}
-                            />
+                            <div className="flex flex-col gap-1 max-h-[250px] overflow-y-auto styled-scrollbar">
+                                {(() => {
+                                    const urls: string[] = props._urls_list || [];
+                                    const headlines: string[] = props._headlines_list || [];
+                                    if (urls.length === 0) return <span className="text-[var(--text-muted)] text-[10px]">No articles available.</span>;
+                                    return urls.map((url: string, idx: number) => {
+                                        const headline = headlines[idx] || '';
+                                        let domain = '';
+                                        try { domain = new URL(url).hostname.replace('www.', ''); } catch { domain = ''; }
+                                        return (
+                                            <a
+                                                key={idx}
+                                                href={url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="block py-1.5 border-b border-[var(--border-primary)]/50 last:border-0 cursor-pointer group"
+                                            >
+                                                <span className="text-orange-400 text-[11px] font-bold leading-tight group-hover:text-orange-300 block">
+                                                    {headline || domain || 'View Article'}
+                                                </span>
+                                                {headline && domain && (
+                                                    <span className="text-[var(--text-muted)] text-[9px] block mt-0.5">{domain}</span>
+                                                )}
+                                            </a>
+                                        );
+                                    });
+                                })()}
+                            </div>
                         </div>
                     </div>
                 </motion.div>
@@ -966,9 +998,9 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                                 <motion.div
                                     key={idx}
                                     ref={(el) => { itemRefs.current[idx] = el; }}
-                                    initial={{ opacity: 0, x: -10 }}
+                                    initial={idx < 15 ? { opacity: 0, x: -10 } : { opacity: 1, x: 0 }}
                                     animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: 0.1 + (idx * 0.05) }}
+                                    transition={idx < 15 ? { delay: 0.1 + (idx * 0.05) } : { duration: 0 }}
                                     className={`p-2 rounded-sm border-l-[2px] border-r border-t border-b ${bgClass} flex flex-col gap-1 relative group shrink-0`}
                                 >
                                     <div className="flex items-center justify-between text-[8px] text-[var(--text-secondary)] uppercase tracking-widest">

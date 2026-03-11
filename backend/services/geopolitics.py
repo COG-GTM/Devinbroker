@@ -86,8 +86,10 @@ def _extract_domain(url):
 
 def _url_to_headline(url):
     """Extract a human-readable headline from a URL path.
-    e.g. 'https://nytimes.com/2026/03/us-strikes-iran-nuclear-sites.html' -> 'Us Strikes Iran Nuclear Sites (nytimes.com)'
+    e.g. 'https://nytimes.com/2026/03/us-strikes-iran-nuclear-sites.html' -> 'Us Strikes Iran Nuclear Sites'
+    Falls back to domain name if the URL slug is gibberish (hex IDs, UUIDs, etc.).
     """
+    import re
     try:
         from urllib.parse import urlparse, unquote
         parsed = urlparse(url)
@@ -100,42 +102,150 @@ def _url_to_headline(url):
         if not path:
             return domain
 
-        # Take the last path segment (usually the slug)
-        slug = path.split('/')[-1]
-        # Remove file extensions
-        for ext in ['.html', '.htm', '.php', '.asp', '.aspx', '.shtml']:
-            if slug.lower().endswith(ext):
-                slug = slug[:-len(ext)]
-        # If slug is purely numeric or a short ID, try the second-to-last segment
-        import re
-        if re.match(r'^[a-z]?\d{5,}$', slug, re.IGNORECASE):
-            segments = path.split('/')
-            if len(segments) >= 2:
-                slug = segments[-2]
-                for ext in ['.html', '.htm', '.php']:
-                    if slug.lower().endswith(ext):
-                        slug = slug[:-len(ext)]
+        # Try the last path segment first, then walk backwards
+        segments = [s for s in path.split('/') if s]
+        slug = ''
+        for seg in reversed(segments):
+            # Remove file extensions
+            for ext in ['.html', '.htm', '.php', '.asp', '.aspx', '.shtml']:
+                if seg.lower().endswith(ext):
+                    seg = seg[:-len(ext)]
+            # Skip segments that are clearly not headlines
+            if _is_gibberish(seg):
+                continue
+            slug = seg
+            break
+
+        if not slug:
+            return domain
+
         # Remove common ID patterns at start/end
-        slug = re.sub(r'^[\d]+-', '', slug)  # leading numbers like "13847569-"
-        slug = re.sub(r'-[\da-f]{6,}$', '', slug)  # trailing hex IDs
-        slug = re.sub(r'[-_]c-\d+$', '', slug)  # trailing "-c-21803431"
-        slug = re.sub(r'^p=\d+$', '', slug)  # WordPress ?p=1234
+        slug = re.sub(r'^[\d]+-', '', slug)       # leading "13847569-"
+        slug = re.sub(r'-[\da-f]{6,}$', '', slug) # trailing hex IDs
+        slug = re.sub(r'[-_]c-\d+$', '', slug)    # trailing "-c-21803431"
+        slug = re.sub(r'^p=\d+$', '', slug)        # WordPress ?p=1234
         # Convert slug separators to spaces
         slug = slug.replace('-', ' ').replace('_', ' ')
-        # Clean up multiple spaces
         slug = re.sub(r'\s+', ' ', slug).strip()
 
-        # If slug is still just a number or too short, fall back to domain
-        if len(slug) < 5 or re.match(r'^\d+$', slug):
+        # Final gibberish check after cleanup
+        if len(slug) < 8 or _is_gibberish(slug.replace(' ', '-')):
             return domain
 
         # Title case and truncate
         headline = slug.title()
-        if len(headline) > 80:
-            headline = headline[:77] + '...'
-        return f"{headline} ({domain})"
+        if len(headline) > 90:
+            headline = headline[:87] + '...'
+        return headline
     except Exception:
         return url[:60]
+
+
+def _is_gibberish(text):
+    """Detect if a URL segment is gibberish (hex IDs, UUIDs, numeric IDs, etc.)
+    rather than a real human-readable slug like 'us-strikes-iran'."""
+    import re
+    t = text.strip()
+    if not t:
+        return True
+    # Pure numbers
+    if re.match(r'^\d+$', t):
+        return True
+    # UUID pattern (with or without dashes)
+    if re.match(r'^[0-9a-f]{8}[_-]?[0-9a-f]{4}[_-]?[0-9a-f]{4}[_-]?[0-9a-f]{4}[_-]?[0-9a-f]{12}$', t, re.I):
+        return True
+    # Hex-heavy string: more than 40% hex digits among alphanumeric chars
+    alnum = re.sub(r'[^a-zA-Z0-9]', '', t)
+    if alnum:
+        hex_chars = sum(1 for c in alnum if c in '0123456789abcdefABCDEF')
+        if hex_chars / len(alnum) > 0.4 and len(alnum) > 6:
+            return True
+    # Mostly digits with a few alpha (like "article8efa6c53")
+    digits = sum(1 for c in alnum if c.isdigit())
+    if alnum and digits / len(alnum) > 0.5:
+        return True
+    # Too short to be a headline slug
+    if len(t) < 5:
+        return True
+    # Query-param style segments
+    if '=' in t:
+        return True
+    return False
+
+
+# Persistent cache for article titles — survives across GDELT cache refreshes
+_article_title_cache = {}
+
+def _fetch_article_title(url):
+    """Fetch the real headline from an article's HTML <title> or og:title tag.
+    Returns the title string, or None if it can't be fetched.
+    Uses a persistent cache to avoid refetching."""
+    if url in _article_title_cache:
+        return _article_title_cache[url]
+    
+    import re
+    try:
+        # Only read the first 32KB — the <title> is always in <head>
+        resp = requests.get(url, timeout=4, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; OSINT Dashboard/1.0)'
+        }, stream=True)
+        if resp.status_code != 200:
+            _article_title_cache[url] = None
+            return None
+        
+        chunk = resp.raw.read(32768).decode('utf-8', errors='replace')
+        resp.close()
+        
+        title = None
+        
+        # Try og:title first (usually the cleanest)
+        og_match = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\'>]+)["\']', chunk, re.I)
+        if not og_match:
+            og_match = re.search(r'<meta[^>]+content=["\']([^"\'>]+)["\'][^>]+property=["\']og:title["\']', chunk, re.I)
+        if og_match:
+            title = og_match.group(1).strip()
+        
+        # Fall back to <title> tag
+        if not title:
+            title_match = re.search(r'<title[^>]*>([^<]+)</title>', chunk, re.I)
+            if title_match:
+                title = title_match.group(1).strip()
+        
+        if title:
+            # Clean up HTML entities
+            import html as html_mod
+            title = html_mod.unescape(title)
+            # Remove site name suffixes like " | CNN" or " - BBC News"
+            title = re.sub(r'\s*[|\-–—]\s*[^|\-–—]{2,30}$', '', title).strip()
+            # Truncate very long titles
+            if len(title) > 120:
+                title = title[:117] + '...'
+            if len(title) > 10:
+                _article_title_cache[url] = title
+                return title
+        
+        _article_title_cache[url] = None
+        return None
+    except Exception:
+        _article_title_cache[url] = None
+        return None
+
+
+def _batch_fetch_titles(urls):
+    """Fetch real article titles for a list of URLs in parallel.
+    Returns a dict of url -> title (or None if fetch failed)."""
+    from concurrent.futures import ThreadPoolExecutor
+    results = {}
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        futures = {executor.submit(_fetch_article_title, u): u for u in urls}
+        for future in futures:
+            url = futures[future]
+            try:
+                results[url] = future.result()
+            except Exception:
+                results[url] = None
+    return results
+
 
 def _parse_gdelt_export_zip(zip_bytes, conflict_codes, seen_locs, features, loc_index):
     """Parse a single GDELT export ZIP and append conflict features.
@@ -278,11 +388,27 @@ def fetch_global_military_incidents():
             if zip_bytes:
                 _parse_gdelt_export_zip(zip_bytes, CONFLICT_CODES, seen_locs, features, loc_index)
 
+        # Collect all unique article URLs for batch title fetching
+        all_article_urls = set()
+        for f in features:
+            for u in f["properties"].get("_urls", []):
+                if u:
+                    all_article_urls.add(u)
+        
+        logger.info(f"Fetching real article titles for {len(all_article_urls)} unique URLs...")
+        fetched_titles = _batch_fetch_titles(all_article_urls)
+        fetched_count = sum(1 for v in fetched_titles.values() if v)
+        logger.info(f"Resolved {fetched_count}/{len(all_article_urls)} article titles from HTML")
+
         # Build URL + headline arrays for frontend rendering
         for f in features:
             urls = f["properties"].pop("_urls", [])
             f["properties"].pop("_domains", None)
-            headlines = [_url_to_headline(u) for u in urls]
+            headlines = []
+            for u in urls:
+                # Try the real fetched title first, then fall back to URL slug parsing
+                real_title = fetched_titles.get(u)
+                headlines.append(real_title if real_title else _url_to_headline(u))
             f["properties"]["_urls_list"] = urls
             f["properties"]["_headlines_list"] = headlines
             import html

@@ -238,49 +238,51 @@ def _ais_stream_loop():
             logger.info("AIS Stream proxy started — receiving vessel data")
             
             msg_count = 0
+            ok_streak = 0  # Track consecutive successful messages for backoff reset
+            last_log_time = time.time()
             for raw_msg in iter(process.stdout.readline, ''):
                 if not _ws_running:
                     process.terminate()
                     break
-                
+
                 raw_msg = raw_msg.strip()
                 if not raw_msg:
                     continue
-                
+
                 try:
                     data = json.loads(raw_msg)
                 except json.JSONDecodeError:
                     continue
-                
+
                 if "error" in data:
                     logger.error(f"AIS Stream error: {data['error']}")
                     continue
-                
+
                 msg_type = data.get("MessageType", "")
                 metadata = data.get("MetaData", {})
                 message = data.get("Message", {})
-                
+
                 mmsi = metadata.get("MMSI", 0)
                 if not mmsi:
                     continue
-                
+
                 with _vessels_lock:
                     if mmsi not in _vessels:
                         _vessels[mmsi] = {"_updated": time.time()}
                     vessel = _vessels[mmsi]
-                
+
                 # Update position from PositionReport or StandardClassBPositionReport
                 if msg_type in ("PositionReport", "StandardClassBPositionReport"):
                     report = message.get(msg_type, {})
                     lat = report.get("Latitude", metadata.get("latitude", 0))
                     lng = report.get("Longitude", metadata.get("longitude", 0))
-                    
+
                     # Skip invalid positions
                     if lat == 0 and lng == 0:
                         continue
                     if abs(lat) > 90 or abs(lng) > 180:
                         continue
-                    
+
                     with _vessels_lock:
                         vessel["lat"] = lat
                         vessel["lng"] = lng
@@ -292,12 +294,12 @@ def _ais_stream_loop():
                         # Use metadata name if we don't have one yet
                         if not vessel.get("name") or vessel["name"] == "UNKNOWN":
                             vessel["name"] = metadata.get("ShipName", "UNKNOWN").strip() or "UNKNOWN"
-                
+
                 # Update static data from ShipStaticData
                 elif msg_type == "ShipStaticData":
                     static = message.get("ShipStaticData", {})
                     ais_type = static.get("Type", 0)
-                    
+
                     with _vessels_lock:
                         vessel["name"] = (static.get("Name", "") or metadata.get("ShipName", "UNKNOWN")).strip() or "UNKNOWN"
                         vessel["callsign"] = (static.get("CallSign", "") or "").strip()
@@ -306,21 +308,24 @@ def _ais_stream_loop():
                         vessel["ais_type_code"] = ais_type
                         vessel["type"] = classify_vessel(ais_type, mmsi)
                         vessel["_updated"] = time.time()
-                
+
                 msg_count += 1
-                if msg_count % 5000 == 0:
+                ok_streak += 1
+
+                # Reset backoff after 200 consecutive successful messages
+                if ok_streak >= 200 and backoff > 1:
+                    backoff = 1
+                    ok_streak = 0
+
+                # Periodic logging + cache save (time-based instead of count-based to avoid lock in hot loop)
+                now = time.time()
+                if now - last_log_time >= 60:
                     with _vessels_lock:
-                        # Inline pruning: remove vessels not updated in 15 minutes
-                        prune_cutoff = time.time() - 900
-                        stale = [k for k, v in _vessels.items() if v.get("_updated", 0) < prune_cutoff]
-                        for k in stale:
-                            del _vessels[k]
                         count = len(_vessels)
-                    if stale:
-                        logger.info(f"AIS pruned {len(stale)} stale vessels")
                     logger.info(f"AIS Stream: processed {msg_count} messages, tracking {count} vessels")
-                    _save_cache()  # Auto-save every 5000 messages (~60 seconds)
-                        
+                    _save_cache()
+                    last_log_time = now
+
         except Exception as e:
             logger.error(f"AIS proxy connection error: {e}")
             if _ws_running:
@@ -328,8 +333,6 @@ def _ais_stream_loop():
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 60)  # Double up to 60s max
             continue
-        # Reset backoff on successful connection (got at least some messages)
-        backoff = 1
 
 
 def _run_ais_loop():

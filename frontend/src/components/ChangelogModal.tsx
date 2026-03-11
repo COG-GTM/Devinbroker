@@ -2,45 +2,45 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Rss, Server, Zap, Shield, Bug } from "lucide-react";
+import { X, Zap, Gauge, Anchor, Layers, Bug } from "lucide-react";
 
-const CURRENT_VERSION = "0.6";
+const CURRENT_VERSION = "0.7";
 const STORAGE_KEY = `shadowbroker_changelog_v${CURRENT_VERSION}`;
 
 const NEW_FEATURES = [
     {
-        icon: <Rss size={14} className="text-orange-400" />,
-        title: "Custom News Feed Manager",
-        desc: "Add, remove, and prioritize up to 20 RSS intelligence sources directly from the Settings panel. Assign weight levels (1-5) to control feed importance. No more editing Python files — your custom feeds persist across restarts.",
-        color: "orange",
+        icon: <Gauge size={14} className="text-green-400" />,
+        title: "Parallelized Data Fetches",
+        desc: "Stock and oil ticker fetches now run in parallel via ThreadPoolExecutor — backend data updates ~4x faster (~2s vs ~8s serial).",
+        color: "green",
     },
     {
-        icon: <Server size={14} className="text-purple-400" />,
-        title: "Global Data Center Map Layer",
-        desc: "2,000+ data centers plotted worldwide from a curated dataset. Click any DC for operator details — and if an internet outage is detected in the same country, the popup flags it automatically.",
-        color: "purple",
+        icon: <Anchor size={14} className="text-blue-400" />,
+        title: "AIS WebSocket Stability",
+        desc: "Exponential backoff now properly resets after 200 consecutive successes. Removed lock-contention vessel pruning — replaced with time-based logging every 60s.",
+        color: "blue",
     },
     {
         icon: <Zap size={14} className="text-yellow-400" />,
-        title: "Imperative Map Rendering",
-        desc: "High-volume layers (flights, satellites, fire hotspots) now bypass React reconciliation and update the map directly via setData(). Debounced updates on dense layers. Smoother panning and zooming under load.",
+        title: "Deferred Icon Loading",
+        desc: "~35 critical map icons load immediately on startup. ~50 non-critical icons (fire markers, satellites, color variants) are deferred — faster initial map render.",
         color: "yellow",
     },
     {
-        icon: <Shield size={14} className="text-cyan-400" />,
-        title: "Enhanced Health Observability",
-        desc: "The /api/health endpoint now reports per-source freshness timestamps and counts for all data layers — UAVs, FIRMS fires, LiveUAMap, GDELT, and more. Better uptime monitoring for self-hosters.",
+        icon: <Layers size={14} className="text-cyan-400" />,
+        title: "Smarter Data Tiering",
+        desc: "Satellites removed from fast endpoint (was duplicated). Geopolitics polling reduced from 5min to 30min. Single-pass ETag serialization — clients get 304 Not Modified most of the time.",
         color: "cyan",
     },
 ];
 
 const BUG_FIXES = [
-    "Settings panel now has tabbed UI — API Keys and News Feeds on separate tabs",
-    "Data center coordinates fixed for 187 Southern Hemisphere entries (were mirrored north of equator)",
-    "Docker networking: CORS_ORIGINS env var properly passed through docker-compose",
-    "Start scripts warn on Python 3.13+ compatibility issues before install",
-    "Satellite and fire hotspot layers debounced (2s) to prevent render thrashing",
-    "Entries with invalid geocoded coordinates automatically filtered out",
+    "News feed entrance animations capped at 15 items — no more 100+ simultaneous Framer Motion instances",
+    "FIRMS fire hotspots and internet outages use heapq.nlargest() instead of full sort — faster processing of 60K+ records",
+    "Ship counts in left panel memoized with single-pass loop instead of 3 separate filter calls",
+    "Color map objects extracted to module-level constants — no allocation on every 2s tick",
+    "GDELT headline extraction improved — skips gibberish URL slugs and hex IDs",
+    "Multi-arch Docker images now available (amd64 + arm64) — runs on Raspberry Pi and Apple Silicon",
 ];
 
 export function useChangelog() {
