@@ -23,6 +23,22 @@ Built with **Next.js**, **MapLibre GL**, **FastAPI**, and **Python**, it's desig
 
 ---
 
+## Why This Exists
+
+A surprising amount of global telemetry is already public:
+
+- Aircraft ADS-B broadcasts
+- Maritime AIS signals
+- Satellite orbital data
+- Earthquake sensors
+- Environmental monitoring networks
+
+This data is scattered across dozens of tools and APIs. ShadowBroker began as an experiment to see what the world looks like when these signals are combined into a single interface.
+
+The project does not introduce new surveillance capabilities — it visualizes existing public datasets. It is fully open-source so anyone can audit exactly what data is accessed and how. No data is collected, stored, or transmitted beyond what is needed to render the dashboard in your browser.
+
+---
+
 ## Interesting Use Cases
 
 * Track everything from Air Force One to the private jets of billionaires, dictators, and corporations
@@ -549,9 +565,7 @@ LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
 
 ## ⚠️ Disclaimer
 
-This is an **educational and research tool** built entirely on publicly available, open-source intelligence (OSINT) data. No classified, restricted, or non-public data sources are used. Carrier positions are estimates based on public reporting. The military-themed UI is purely aesthetic.
-
-**Do not use this tool for any operational, military, or intelligence purpose.**
+This tool is built entirely on publicly available, open-source intelligence (OSINT) data. No classified, restricted, or non-public data is used. Carrier positions are estimates based on public reporting. The military-themed UI is purely aesthetic.
 
 ---
 
