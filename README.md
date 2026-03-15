@@ -150,8 +150,8 @@ helm repo update
 
 **2. Install the Chart:**
 ```bash
-# Install from the local /chart directory
-helm install shadowbroker ./chart --create-namespace --namespace shadowbroker
+# Install from the local helm/chart directory
+helm install shadowbroker ./helm/chart --create-namespace --namespace shadowbroker
 ```
 
 **3. Key Features:**
