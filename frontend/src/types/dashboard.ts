@@ -224,6 +224,15 @@ export interface DataCenter {
   lng: number;
 }
 
+export interface MilitaryBase {
+  name: string;
+  country: string;
+  operator: string;
+  branch: string;
+  lat: number;
+  lng: number;
+}
+
 // ─── NEWS / GLOBAL INCIDENTS ────────────────────────────────────────────────
 
 export interface NewsArticle {
@@ -404,6 +413,7 @@ export interface DashboardData {
   internet_outages?: InternetOutage[];
   firms_fires?: FireHotspot[];
   datacenters?: DataCenter[];
+  military_bases?: MilitaryBase[];
 }
 
 // ─── COMPONENT PROPS ────────────────────────────────────────────────────────
@@ -432,6 +442,7 @@ export interface ActiveLayers {
   firms: boolean;
   internet_outages: boolean;
   datacenters: boolean;
+  military_bases: boolean;
 }
 
 export interface SelectedEntity {

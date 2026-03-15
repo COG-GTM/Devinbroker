@@ -40,7 +40,7 @@ from services.fetchers.earth_observation import (  # noqa: F401
     fetch_earthquakes, fetch_firms_fires, fetch_space_weather, fetch_weather,
 )
 from services.fetchers.infrastructure import (  # noqa: F401
-    fetch_internet_outages, fetch_datacenters, fetch_cctv, fetch_kiwisdr,
+    fetch_internet_outages, fetch_datacenters, fetch_military_bases, fetch_cctv, fetch_kiwisdr,
 )
 from services.fetchers.geo import (  # noqa: F401
     fetch_ships, fetch_airports, find_nearest_airport, cached_airports,
@@ -85,6 +85,7 @@ def update_slow_data():
         fetch_frontlines,
         fetch_gdelt,
         fetch_datacenters,
+        fetch_military_bases,
     ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(slow_funcs)) as executor:
         futures = [executor.submit(func) for func in slow_funcs]

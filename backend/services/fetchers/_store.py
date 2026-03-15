@@ -30,7 +30,8 @@ latest_data = {
     "space_weather": None,
     "internet_outages": [],
     "firms_fires": [],
-    "datacenters": []
+    "datacenters": [],
+    "military_bases": []
 }
 
 # Per-source freshness timestamps

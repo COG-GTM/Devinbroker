@@ -144,6 +144,43 @@ def fetch_datacenters():
 
 
 # ---------------------------------------------------------------------------
+# Military Bases (static JSON — Western Pacific)
+# ---------------------------------------------------------------------------
+_MILITARY_BASES_PATH = Path(__file__).parent.parent.parent / "data" / "military_bases.json"
+
+
+def fetch_military_bases():
+    """Load static military base locations (Western Pacific focus)."""
+    bases = []
+    try:
+        if not _MILITARY_BASES_PATH.exists():
+            logger.warning(f"Military bases file not found: {_MILITARY_BASES_PATH}")
+            return
+        raw = json.loads(_MILITARY_BASES_PATH.read_text(encoding="utf-8"))
+        for entry in raw:
+            lat = entry.get("lat")
+            lng = entry.get("lng")
+            if lat is None or lng is None:
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                continue
+            bases.append({
+                "name": entry.get("name", "Unknown"),
+                "country": entry.get("country", ""),
+                "operator": entry.get("operator", ""),
+                "branch": entry.get("branch", ""),
+                "lat": lat, "lng": lng,
+            })
+        logger.info(f"Military bases: {len(bases)} locations loaded")
+    except Exception as e:
+        logger.error(f"Error loading military bases: {e}")
+    with _data_lock:
+        latest_data["military_bases"] = bases
+    if bases:
+        _mark_fresh("military_bases")
+
+
+# ---------------------------------------------------------------------------
 # CCTV Cameras
 # ---------------------------------------------------------------------------
 def fetch_cctv():

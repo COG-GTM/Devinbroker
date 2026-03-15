@@ -2,7 +2,7 @@
 // Extracted from MaplibreViewer to reduce component size and enable unit testing.
 // Each function takes data arrays + optional helpers and returns a GeoJSON FeatureCollection or null.
 
-import type { Earthquake, GPSJammingZone, FireHotspot, InternetOutage, DataCenter, GDELTIncident, LiveUAmapIncident, CCTVCamera, KiwiSDR, FrontlineGeoJSON, UAV, Satellite, Ship, ActiveLayers } from "@/types/dashboard";
+import type { Earthquake, GPSJammingZone, FireHotspot, InternetOutage, DataCenter, MilitaryBase, GDELTIncident, LiveUAmapIncident, CCTVCamera, KiwiSDR, FrontlineGeoJSON, UAV, Satellite, Ship, ActiveLayers } from "@/types/dashboard";
 import { classifyAircraft } from "@/utils/aircraftClassification";
 import { MISSION_COLORS, MISSION_ICON_MAP } from "@/components/map/icons/SatelliteIcons";
 
@@ -191,6 +191,27 @@ export function buildDataCentersGeoJSON(datacenters?: DataCenter[]): FC {
                 zip: dc.zip || '',
             },
             geometry: { type: 'Point' as const, coordinates: [dc.lng, dc.lat] }
+        }))
+    };
+}
+
+// ─── Military Bases ─────────────────────────────────────────────────────────
+
+export function buildMilitaryBasesGeoJSON(bases?: MilitaryBase[]): FC {
+    if (!bases?.length) return null;
+    return {
+        type: 'FeatureCollection',
+        features: bases.map((base, i) => ({
+            type: 'Feature' as const,
+            properties: {
+                id: `milbase-${i}`,
+                type: 'military_base',
+                name: base.name || 'Unknown',
+                country: base.country || '',
+                operator: base.operator || '',
+                branch: base.branch || '',
+            },
+            geometry: { type: 'Point' as const, coordinates: [base.lng, base.lat] }
         }))
     };
 }
