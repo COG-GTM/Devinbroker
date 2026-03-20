@@ -1,0 +1,36 @@
+Category,API / Source,URL / Library,Purpose
+Aviation,adsb.lol,https://api.adsb.lol/v2/lat/.../lon/.../dist/...,Primary ADS-B flight data (regional)
+Aviation,adsb.lol Military,https://api.adsb.lol/v2/mil,Military aircraft tracking
+Aviation,adsb.lol Routes,https://api.adsb.lol/api/0/routeset,Flight route/airport resolution (POST)
+Aviation,OpenSky Network,https://opensky-network.org/api/states/all,Gap-fill flight data (OAuth2 400 req/day)
+Aviation,airplanes.live,https://api.airplanes.live/v2/point/...,Supplemental blind-spot gap-filling
+Aviation,adsb.fi,https://opendata.adsb.fi/api/v3/lat/.../lon/.../dist/...,Supplemental blind-spot gap-filling
+Aviation,OurAirports,https://ourairports.com/data/airports.csv,Global airport database
+Maritime,aisstream.io,wss://stream.aisstream.io/v0/stream,Real-time AIS vessel tracking (WebSocket)
+Satellite,CelesTrak,https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json,Satellite TLE/GP data
+Satellite,TLE API (fallback),https://tle.ivanstanojevic.me/api/tle/,Fallback TLE source
+Satellite,Microsoft Planetary Computer STAC,https://planetarycomputer.microsoft.com/api/stac/v1,Sentinel-2 satellite imagery search
+Geopolitical,GDELT,http://data.gdeltproject.org/gdeltv2/,Global military/conflict incidents
+Geopolitical,LiveUAMap,https://liveuamap.com,Conflict event markers (Playwright scraping)
+Geopolitical,DeepStateMap (GitHub),https://api.github.com/repos/cyterat/deepstate-map-data/...,Ukraine frontline GeoJSON data
+Earth Observation,USGS Earthquakes,https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson,M2.5+ earthquakes (24h)
+Earth Observation,NASA FIRMS,https://firms.modaps.eosdis.nasa.gov/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv,Global fire/thermal anomalies
+Earth Observation,NOAA SWPC (Kp Index),https://services.swpc.noaa.gov/json/planetary_k_index_1m.json,Space weather Kp index
+Earth Observation,NOAA SWPC (Events),https://services.swpc.noaa.gov/json/edited_events.json,Solar events
+Earth Observation,RainViewer,https://api.rainviewer.com/public/weather-maps.json,Global weather radar tiles
+Infrastructure,IODA (Georgia Tech),https://api.ioda.inetintel.cc.gatech.edu/v2/outages/alerts,Internet outage detection
+Infrastructure,KiwiSDR,http://kiwisdr.com/.public/,Public SDR receiver list (HTML scraping)
+Infrastructure,OSM Nominatim,https://nominatim.openstreetmap.org/search,Geocoding & reverse geocoding
+Infrastructure,OSM Overpass,https://overpass-api.de/api/interpreter,Surveillance camera locations
+CCTV,TfL (London),https://api.tfl.gov.uk/Place/Type/JamCam,London traffic cameras
+CCTV,Singapore LTA,https://api.data.gov.sg/v1/transport/traffic-images,Singapore traffic cameras
+CCTV,NYC DOT,https://webcams.nyctmc.org/api/cameras,NYC traffic cameras
+CCTV,Austin TX,https://data.austintexas.gov/resource/b4k4-adkb.json,Austin traffic cameras
+CCTV,Mapbox Static API,https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/...,Satellite imagery for OSM camera views
+Radio / SIGINT,Broadcastify,https://www.broadcastify.com/listen/top,Top 50 live scanner feeds (HTML scraping)
+Radio / SIGINT,OpenMHZ,https://api.openmhz.com/systems,Trunked radio system recordings
+Financial,Yahoo Finance,yfinance Python library,"Defense stocks (RTX LMT NOC GD BA PLTR) and oil prices (WTI Brent)"
+News,RSS Feeds,Configurable via news_feeds.json,Aggregated news with geocoding and risk scoring
+Region Dossier,REST Countries,https://restcountries.com/v3.1/alpha/{code},"Country metadata (population capital etc.)"
+Region Dossier,Wikidata SPARQL,https://query.wikidata.org/sparql,Head of state & government type
+Region Dossier,Wikipedia REST,https://en.wikipedia.org/api/rest_v1/page/summary/{slug},Local area summaries
