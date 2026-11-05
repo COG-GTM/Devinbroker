@@ -211,9 +211,14 @@ def _read_capped(res, max_bytes):
 
 
 def _curl_fetch_pinned(url, host, port, ip, timeout, headers, max_bytes):
-    """curl fallback pinned to an already-validated IP, no redirects, no proxies."""
+    """curl fallback pinned to an already-validated IP, no redirects, no proxies.
+
+    Returns ``(response, redirect_url)``; redirects are left to the caller so each
+    hop is re-validated.
+    """
     pinned = f"[{ip}]" if ":" in ip else ip
     cmd = _curl_base_cmd(timeout) + [
+        "-w", "\n%{http_code}\n%{redirect_url}",
         "--noproxy", "*",
         "--resolve", f"{host}:{port}:{pinned}",
         "--max-filesize", str(max_bytes),
@@ -225,16 +230,17 @@ def _curl_fetch_pinned(url, host, port, ip, timeout, headers, max_bytes):
         res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout + 5)
     except (subprocess.SubprocessError, OSError) as e:
         logger.error(f"curl fallback exception for {url}: {e}")
-        return _DummyResponse(500, "")
-    if res.returncode != 0 or not res.stdout.strip():
+        return _DummyResponse(500, ""), None
+    parts = res.stdout.rsplit("\n", 2)
+    if res.returncode != 0 or len(parts) != 3 or not parts[1].strip().isdigit():
         logger.error(f"curl fallback failed for {url}: exit={res.returncode} stderr={res.stderr[:200]}")
-        return _DummyResponse(500, "")
-    lines = res.stdout.rstrip().rsplit("\n", 1)
-    body = lines[0] if len(lines) > 1 else res.stdout
+        return _DummyResponse(500, ""), None
+    body, http_code, redirect_url = parts[0], int(parts[1]), parts[2].strip()
     if len(body) > max_bytes:
         raise ValueError(f"Response exceeds {max_bytes} bytes")
-    http_code = int(lines[-1]) if len(lines) > 1 and lines[-1].strip().isdigit() else 200
-    return _DummyResponse(http_code, body)
+    if 300 <= http_code < 400 and redirect_url:
+        return _DummyResponse(http_code, ""), redirect_url
+    return _DummyResponse(http_code, body), None
 
 
 def fetch_public_url(url, timeout=10, max_bytes=FEED_MAX_BYTES, headers=None):
@@ -267,5 +273,9 @@ def fetch_public_url(url, timeout=10, max_bytes=FEED_MAX_BYTES, headers=None):
                 return _DummyResponse(res.status_code, text)
         except (requests.RequestException, ConnectionError, TimeoutError) as e:
             logger.warning(f"Python requests failed for {current} ({e}), falling back to pinned curl...")
-            return _curl_fetch_pinned(current, host, port, ips[0], timeout, req_headers, max_bytes)
+            response, redirect_url = _curl_fetch_pinned(
+                current, host, port, ips[0], timeout, req_headers, max_bytes)
+            if redirect_url is None:
+                return response
+            current = urljoin(current, redirect_url)
     raise UnsafeURLError(f"Too many redirects fetching {url}")

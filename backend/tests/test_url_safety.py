@@ -177,7 +177,7 @@ class TestFetchPublicUrl:
             fetch_public_url("https://feeds.example.com/rss", max_bytes=100)
 
     def test_curl_fallback_is_pinned_to_validated_ip(self, public_dns):
-        result = MagicMock(returncode=0, stdout="<rss/>\n200", stderr="")
+        result = MagicMock(returncode=0, stdout="<rss/>\n200\n", stderr="")
         with patch.object(network_utils._public_session, "get",
                           side_effect=network_utils.requests.ConnectionError("blocked")), \
              patch("subprocess.run", return_value=result) as run:
@@ -188,6 +188,26 @@ class TestFetchPublicUrl:
         assert cmd[cmd.index("--proto") + 1] == "=http,https"
         assert cmd[-2:] == ["--", "https://feeds.example.com/rss"]
         assert "-L" not in cmd
+
+    def test_curl_fallback_revalidates_redirects(self, public_dns):
+        blocked = network_utils.requests.ConnectionError("blocked")
+        hop1 = MagicMock(returncode=0, stdout="moved\n302\nhttps://cdn.example.com/rss.xml", stderr="")
+        hop2 = MagicMock(returncode=0, stdout="<rss/>\n200\n", stderr="")
+        with patch.object(network_utils._public_session, "get", side_effect=blocked), \
+             patch("subprocess.run", side_effect=[hop1, hop2]) as run:
+            res = fetch_public_url("https://feeds.example.com/rss")
+        assert res.text == "<rss/>"
+        assert run.call_args_list[1].args[0][-1] == "https://cdn.example.com/rss.xml"
+        assert all("-L" not in c.args[0] for c in run.call_args_list)
+
+    def test_curl_fallback_redirect_to_internal_host_is_blocked(self, public_dns):
+        blocked = network_utils.requests.ConnectionError("blocked")
+        hop1 = MagicMock(returncode=0, stdout="\n302\nhttp://169.254.169.254/latest/meta-data/", stderr="")
+        with patch.object(network_utils._public_session, "get", side_effect=blocked), \
+             patch("subprocess.run", return_value=hop1) as run, \
+             pytest.raises(UnsafeURLError):
+            fetch_public_url("https://feeds.example.com/rss")
+        assert run.call_count == 1
 
     def test_peer_check_blocks_dns_rebinding(self):
         sock = MagicMock()
