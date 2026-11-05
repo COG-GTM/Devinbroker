@@ -19,6 +19,7 @@ _SECRET_VARS = [
     "LTA_ACCOUNT_KEY",
     "CORS_ORIGINS",
     "ADMIN_KEY",
+    "AIS_FEED_TOKEN",
 ]
 
 for _var in _SECRET_VARS:
@@ -170,14 +171,24 @@ async def force_refresh(request: Request):
 @app.post("/api/ais/feed")
 @limiter.limit("60/minute")
 async def ais_feed(request: Request):
-    """Accept AIS-catcher HTTP JSON feed (POST decoded AIS messages)."""
-    from services.ais_stream import ingest_ais_catcher
-    try:
-        body = await request.json()
-    except Exception:
-        return Response(content='{"error":"invalid JSON"}', status_code=400, media_type="application/json")
+    """Accept AIS-catcher HTTP JSON feed (POST decoded AIS messages).
 
-    msgs = body.get("msgs", [])
+    Requires AIS_FEED_TOKEN (X-AIS-Feed-Token header, Bearer/Basic auth, or ?token=).
+    """
+    from services.ais_stream import ingest_ais_catcher
+    from services.ais_feed import FeedError, check_feed_token, parse_feed_body, read_limited_body
+    try:
+        check_feed_token(request.headers, request.query_params)
+        raw = await read_limited_body(request)
+        try:
+            body = json_mod.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise FeedError(400, "invalid JSON")
+        msgs = parse_feed_body(body)
+    except FeedError as e:
+        return Response(content=json_mod.dumps({"error": e.detail}), status_code=e.status_code,
+                        media_type="application/json")
+
     if not msgs:
         return {"status": "ok", "ingested": 0}
 

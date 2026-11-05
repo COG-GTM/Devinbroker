@@ -128,6 +128,11 @@ def get_country_from_mmsi(mmsi: int) -> str:
 # Global vessel store: MMSI → vessel dict
 _vessels: dict[int, dict] = {}
 _vessels_lock = threading.Lock()
+
+# MMSIs first created by the local AIS-catcher feed, capped so a single
+# receiver (or a forged feed) cannot grow the shared vessel table unbounded.
+MAX_LOCAL_FEED_VESSELS = 5000
+_local_feed_mmsis: set[int] = set()
 _ws_thread: threading.Thread | None = None
 _ws_running = False
 
@@ -179,7 +184,8 @@ def get_ais_vessels() -> list[dict]:
         stale_keys = [k for k, v in _vessels.items() if v.get("_updated", 0) < stale_cutoff]
         for k in stale_keys:
             del _vessels[k]
-        
+        _local_feed_mmsis.intersection_update(_vessels.keys())
+
         result = []
         for mmsi, v in _vessels.items():
             v_type = v.get("type", "unknown")
@@ -190,20 +196,26 @@ def get_ais_vessels() -> list[dict]:
             if not v.get("lat") or not v.get("lng"):
                 continue
             
-            result.append({
-                "mmsi": mmsi,
-                "name": v.get("name", "UNKNOWN"),
-                "type": v_type,
-                "lat": round(v.get("lat", 0), 5),
-                "lng": round(v.get("lng", 0), 5),
-                "heading": v.get("heading", 0),
-                "sog": round(v.get("sog", 0), 1),
-                "cog": round(v.get("cog", 0), 1),
-                "callsign": v.get("callsign", ""),
-                "destination": v.get("destination", "") or "UNKNOWN",
-                "imo": v.get("imo", 0),
-                "country": get_country_from_mmsi(mmsi),
-            })
+            try:
+                record = {
+                    "mmsi": mmsi,
+                    "name": v.get("name", "UNKNOWN"),
+                    "type": v_type,
+                    "lat": round(v.get("lat", 0), 5),
+                    "lng": round(v.get("lng", 0), 5),
+                    "heading": v.get("heading", 0),
+                    "sog": round(v.get("sog", 0), 1),
+                    "cog": round(v.get("cog", 0), 1),
+                    "callsign": v.get("callsign", ""),
+                    "destination": v.get("destination", "") or "UNKNOWN",
+                    "imo": v.get("imo", 0),
+                    "country": get_country_from_mmsi(mmsi),
+                }
+            except (TypeError, ValueError):
+                # One malformed record must not blank the whole ships layer.
+                logger.warning(f"Skipping malformed AIS vessel record {mmsi!r}")
+                continue
+            result.append(record)
         return result
 
 
@@ -215,9 +227,13 @@ def ingest_ais_catcher(msgs: list[dict]) -> int:
     with _vessels_lock:
         for msg in msgs:
             mmsi = msg.get("mmsi")
-            if not mmsi or not isinstance(mmsi, int):
+            if not mmsi or not isinstance(mmsi, int) or isinstance(mmsi, bool):
                 continue
 
+            if mmsi not in _vessels:
+                if len(_local_feed_mmsis) >= MAX_LOCAL_FEED_VESSELS:
+                    continue
+                _local_feed_mmsis.add(mmsi)
             vessel = _vessels.setdefault(mmsi, {"mmsi": mmsi})
             msg_type = msg.get("type", 0)
 
