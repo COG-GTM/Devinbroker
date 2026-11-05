@@ -77,6 +77,7 @@ class TestFeedValidation:
         {**GOOD_MSG, "lat": 95.0},
         {**GOOD_MSG, "lon": -200.0},
         {**GOOD_MSG, "lat": True},
+        {**GOOD_MSG, "lat": 10**400},
         {**GOOD_MSG, "speed": "fast"},
         {**GOOD_MSG, "shipname": "A" * 500},
         {**GOOD_MSG, "shipname": 42},
@@ -139,3 +140,16 @@ class TestVesselStoreHardening:
         ais_stream._vessels[222222222] = {"mmsi": 222222222, "lat": 2.0, "lng": 2.0, "_updated": now}
         result = ais_stream.get_ais_vessels()
         assert [v["mmsi"] for v in result] == [222222222]
+
+    def test_cap_survives_cache_reload(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ais_stream, "MAX_LOCAL_FEED_VESSELS", 3)
+        monkeypatch.setattr(ais_stream, "CACHE_FILE", str(tmp_path / "ais_cache.json"))
+        ais_stream.ingest_ais_catcher(
+            [{"mmsi": 400000000 + i, "type": 1, "lat": 1.0, "lon": 1.0} for i in range(3)])
+        ais_stream._save_cache()
+        ais_stream._vessels.clear()
+        ais_stream._local_feed_mmsis.clear()
+        ais_stream._load_cache()
+        assert len(ais_stream._local_feed_mmsis) == 3
+        assert ais_stream.ingest_ais_catcher(
+            [{"mmsi": 400000100 + i, "type": 1, "lat": 1.0, "lon": 1.0} for i in range(3)]) == 0

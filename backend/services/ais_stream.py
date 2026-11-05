@@ -168,6 +168,8 @@ def _load_cache():
             for k, v in data.items():
                 if v.get("_updated", 0) > stale_cutoff:
                     _vessels[int(k)] = v
+                    if v.get("_local_feed"):
+                        _local_feed_mmsis.add(int(k))
                     loaded += 1
         logger.info(f"AIS cache loaded: {loaded} vessels from disk")
     except (IOError, OSError, json.JSONDecodeError, ValueError) as e:
@@ -234,7 +236,8 @@ def ingest_ais_catcher(msgs: list[dict]) -> int:
                 if len(_local_feed_mmsis) >= MAX_LOCAL_FEED_VESSELS:
                     continue
                 _local_feed_mmsis.add(mmsi)
-            vessel = _vessels.setdefault(mmsi, {"mmsi": mmsi})
+                _vessels[mmsi] = {"mmsi": mmsi, "_local_feed": True}
+            vessel = _vessels[mmsi]
             msg_type = msg.get("type", 0)
 
             # Position reports (types 1, 2, 3 = Class A; 18, 19 = Class B)

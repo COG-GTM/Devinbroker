@@ -72,7 +72,11 @@ def check_feed_token(headers, query_params) -> None:
 
 
 def _is_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True  # ints are finite; range checks compare without float conversion
+    return isinstance(value, float) and math.isfinite(value)
 
 
 def _is_int(value) -> bool:

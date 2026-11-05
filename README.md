@@ -487,7 +487,7 @@ You can feed your own AIS ship data into ShadowBroker using an RTL-SDR dongle an
    AIS-catcher -H "http://localhost:4000/api/ais/feed?token=$AIS_FEED_TOKEN" interval 10
    ```
 
-Other clients can send the token as an `X-AIS-Feed-Token` header or `Authorization: Bearer <token>` instead. Each request is limited to 1 MB / 1000 messages; malformed messages (non-numeric or out-of-range `lat`/`lon`, oversized strings) are rejected with 400.
+Other clients can send the token as an `X-AIS-Feed-Token` header or `Authorization: Bearer <token>` instead; prefer a header where your client supports it. The token travels in clear text over `http://`, and a `?token=` URL can end up in access logs, so keep the feed on localhost/LAN, or put HTTPS in front of it if it crosses an untrusted network. Each request is limited to 1 MB / 1000 messages; malformed messages (non-numeric or out-of-range `lat`/`lon`, oversized strings) are rejected with 400.
 
 AIS-catcher decodes VHF radio signals on 161.975 MHz and 162.025 MHz and POSTs decoded vessel data to ShadowBroker every 10 seconds. Ships detected by your SDR antenna appear alongside the global AIS stream.
 
