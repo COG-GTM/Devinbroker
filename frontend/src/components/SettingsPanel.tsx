@@ -85,7 +85,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
         } catch (e) {
             console.error("Failed to fetch API keys", e);
         }
-    }, []);
+    }, [adminKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const fetchFeeds = useCallback(async () => {
         try {
@@ -100,11 +100,15 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
     }, []);
 
     useEffect(() => {
-        if (isOpen) {
-            fetchKeys();
-            fetchFeeds();
-        }
-    }, [isOpen, fetchKeys, fetchFeeds]);
+        if (isOpen) fetchFeeds();
+    }, [isOpen, fetchFeeds]);
+
+    // Refetch keys when the panel opens or the admin key changes (debounced while typing).
+    useEffect(() => {
+        if (!isOpen) return;
+        const t = setTimeout(fetchKeys, 400);
+        return () => clearTimeout(t);
+    }, [isOpen, fetchKeys]);
 
     // API Keys handlers
     const startEditing = (api: ApiEntry) => { setEditingId(api.id); setEditValue(""); };
@@ -172,7 +176,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                 setFeedMsg({ type: "ok", text: "Feeds saved. Changes take effect on next news refresh (~30min) or manual /api/refresh." });
             } else {
                 const d = await res.json().catch(() => ({}));
-                setFeedMsg({ type: "err", text: d.message || "Save failed" });
+                setFeedMsg({ type: "err", text: d.message || d.detail || "Save failed" });
             }
         } catch (e) {
             setFeedMsg({ type: "err", text: "Network error" });

@@ -61,8 +61,10 @@ class TestDebugEndpoint:
 
 
 class TestSettingsEndpoints:
-    def test_get_api_keys(self, client):
-        r = client.get("/api/settings/api-keys")
+    def test_get_api_keys(self, client, monkeypatch):
+        import main
+        monkeypatch.setattr(main, "_ADMIN_KEY", "test-admin-key")
+        r = client.get("/api/settings/api-keys", headers={"X-Admin-Key": "test-admin-key"})
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
@@ -112,3 +114,35 @@ class TestETagBehavior:
         r = client.get("/api/live-data/slow")
         if r.status_code == 200:
             assert "etag" in r.headers
+
+
+class TestAdminGate:
+    FEED_PAYLOADS = (
+        [{"name": "t", "url": "file:///etc/hostname", "weight": 3}],
+        [{"name": "t", "url": "http://127.0.0.1:8000/api/health", "weight": 3}],
+    )
+
+    def test_admin_endpoints_fail_closed_without_admin_key(self, client, monkeypatch):
+        import main
+        monkeypatch.setattr(main, "_ADMIN_KEY", "")
+        assert client.get("/api/settings/api-keys").status_code == 403
+        for payload in self.FEED_PAYLOADS:
+            assert client.put("/api/settings/news-feeds", json=payload).status_code == 403
+
+    def test_wrong_admin_key_rejected(self, client, monkeypatch):
+        import main
+        monkeypatch.setattr(main, "_ADMIN_KEY", "test-admin-key")
+        r = client.get("/api/settings/api-keys", headers={"X-Admin-Key": "wrong"})
+        assert r.status_code == 403
+
+    def test_unsafe_feed_urls_rejected_with_admin_key(self, client, monkeypatch, tmp_path):
+        import main
+        from services import news_feed_config
+        monkeypatch.setattr(main, "_ADMIN_KEY", "test-admin-key")
+        monkeypatch.setattr(news_feed_config, "CONFIG_PATH", tmp_path / "news_feeds.json")
+        for payload in self.FEED_PAYLOADS:
+            r = client.put("/api/settings/news-feeds", json=payload,
+                           headers={"X-Admin-Key": "test-admin-key"})
+            assert r.status_code == 400
+            assert "Validation failed" in r.json()["message"]
+        assert not (tmp_path / "news_feeds.json").exists()

@@ -63,6 +63,7 @@ The following environment variables are configured via secrets:
 - `AIS_API_KEY` - API key for AIS service
 - `OPENSKY_CLIENT_ID` - OpenSky client ID
 - `OPENSKY_CLIENT_SECRET` - OpenSky client secret
+- `ADMIN_KEY` - Admin key for `/api/settings/*` and `/api/system/*` (those endpoints are disabled while it is empty). The `shadowbroker-env` Secret must contain this key.
 
 These can be injected using a Secret resource or Kubernetes ConfigMap.
 

@@ -382,6 +382,7 @@ services:
       - OPENSKY_CLIENT_ID=                       # Optional — higher flight data rate limits
       - OPENSKY_CLIENT_SECRET=                   # Optional — paired with Client ID above
       - LTA_ACCOUNT_KEY=                         # Optional — Singapore CCTV cameras
+      - ADMIN_KEY=change_me_long_random_value    # Required for Settings/news-feed/update endpoints (disabled if empty)
       - CORS_ORIGINS=                            # Optional — comma-separated allowed origins
     volumes:
       - backend_data:/app/data
@@ -599,7 +600,12 @@ AIS_API_KEY=your_aisstream_key                # Maritime vessel tracking (aisstr
 OPENSKY_CLIENT_ID=your_opensky_client_id      # OAuth2 — higher rate limits for flight data
 OPENSKY_CLIENT_SECRET=your_opensky_secret     # OAuth2 — paired with Client ID above
 LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
+
+# Admin (settings, custom news feeds, self-update)
+ADMIN_KEY=long_random_value                   # /api/settings/* and /api/system/* are disabled while unset
 ```
+
+Enter the same `ADMIN_KEY` in the dashboard's Settings panel (**ADMIN KEY** field) to save API keys or news feeds. Custom news feed URLs must be public `http(s)` addresses; private, loopback, link-local and non-HTTP targets are rejected.
 
 ### Frontend
 

@@ -1,13 +1,18 @@
-import logging
 import json
-import subprocess
+import logging
 import shutil
-import time
+import subprocess
 import threading
+import time
+from urllib.parse import urljoin, urlparse
+
 import requests
-from urllib.parse import urlparse
 from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
+
+from services.url_safety import UnsafeURLError, is_public_ip, validate_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,14 @@ _CIRCUIT_BREAKER_TTL = 120  # 2 minutes
 
 # Lock protecting _domain_fail_cache and _circuit_breaker mutations
 _cb_lock = threading.Lock()
+
+def _curl_base_cmd(timeout):
+    """Common curl arguments: http(s) only (including redirects), bounded runtime."""
+    curl_path = shutil.which("curl") or "curl"
+    return [curl_path, "-s", "-w", "\n%{http_code}",
+            "--proto", "=http,https", "--proto-redir", "=http,https",
+            "--max-time", str(timeout)]
+
 
 class _DummyResponse:
     """Minimal response object matching requests.Response interface."""
@@ -61,6 +74,9 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
     }
     if headers:
         default_headers.update(headers)
+
+    if urlparse(url).scheme.lower() not in ("http", "https"):
+        raise UnsafeURLError(f"Refusing to fetch non-http(s) URL: {url!r}")
 
     domain = urlparse(url).netloc
 
@@ -93,14 +109,13 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
                 _domain_fail_cache[domain] = time.time()
 
     # Curl fallback — reached from both _skip_requests and requests-exception paths
-    _CURL_PATH = shutil.which("curl") or "curl"
-    cmd = [_CURL_PATH, "-s", "-w", "\n%{http_code}"]
+    cmd = _curl_base_cmd(timeout)
     for k, v in default_headers.items():
         cmd += ["-H", f"{k}: {v}"]
     if method == "POST" and json_data:
         cmd += ["-X", "POST", "-H", "Content-Type: application/json",
                 "--data-binary", "@-"]
-    cmd.append(url)
+    cmd += ["--", url]
 
     try:
         stdin_data = json.dumps(json_data) if (method == "POST" and json_data) else None
@@ -127,3 +142,140 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
         with _cb_lock:
             _circuit_breaker[domain] = time.time()
         return _DummyResponse(500, "")
+
+
+# ---------------------------------------------------------------------------
+# Fetching user-supplied URLs (e.g. custom news feeds)
+# ---------------------------------------------------------------------------
+FEED_MAX_BYTES = 5 * 1024 * 1024
+FEED_MAX_REDIRECTS = 3
+
+
+def _check_peer_is_public(sock):
+    """Close and reject sockets connected to a non-public address (DNS rebinding guard)."""
+    try:
+        peer_ip = sock.getpeername()[0]
+    except OSError:
+        sock.close()
+        raise
+    if not is_public_ip(peer_ip):
+        sock.close()
+        raise UnsafeURLError(f"Connection to non-public address {peer_ip} blocked")
+    return sock
+
+
+class _PublicOnlyHTTPConnection(HTTPConnection):
+    def _new_conn(self):
+        return _check_peer_is_public(super()._new_conn())
+
+
+class _PublicOnlyHTTPSConnection(HTTPSConnection):
+    def _new_conn(self):
+        return _check_peer_is_public(super()._new_conn())
+
+
+class _PublicOnlyHTTPPool(HTTPConnectionPool):
+    ConnectionCls = _PublicOnlyHTTPConnection
+
+
+class _PublicOnlyHTTPSPool(HTTPSConnectionPool):
+    ConnectionCls = _PublicOnlyHTTPSConnection
+
+
+class _PublicOnlyAdapter(HTTPAdapter):
+    """HTTPAdapter whose connections may only reach public IP addresses."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = {
+            "http": _PublicOnlyHTTPPool,
+            "https": _PublicOnlyHTTPSPool,
+        }
+
+
+_public_session = requests.Session()
+# Ignore environment proxies: a proxy would resolve hosts itself, bypassing the peer check.
+_public_session.trust_env = False
+_public_session.mount("http://", _PublicOnlyAdapter(pool_maxsize=10))
+_public_session.mount("https://", _PublicOnlyAdapter(pool_maxsize=20))
+
+
+def _read_capped(res, max_bytes):
+    chunks, total = [], 0
+    for chunk in res.iter_content(chunk_size=65536):
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"Response exceeds {max_bytes} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _curl_fetch_pinned(url, host, port, ip, timeout, headers, max_bytes):
+    """curl fallback pinned to an already-validated IP, no redirects, no proxies.
+
+    Returns ``(response, redirect_url)``; redirects are left to the caller so each
+    hop is re-validated.
+    """
+    pinned = f"[{ip}]" if ":" in ip else ip
+    cmd = _curl_base_cmd(timeout) + [
+        "-w", "\n%{http_code}\n%{redirect_url}",
+        "--noproxy", "*",
+        "--resolve", f"{host}:{port}:{pinned}",
+        "--max-filesize", str(max_bytes),
+    ]
+    for k, v in headers.items():
+        cmd += ["-H", f"{k}: {v}"]
+    cmd += ["--", url]
+    try:
+        res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout + 5)
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.error(f"curl fallback exception for {url}: {e}")
+        return _DummyResponse(500, ""), None
+    parts = res.stdout.rsplit("\n", 2)
+    if res.returncode != 0 or len(parts) != 3 or not parts[1].strip().isdigit():
+        logger.error(f"curl fallback failed for {url}: exit={res.returncode} stderr={res.stderr[:200]}")
+        return _DummyResponse(500, ""), None
+    body, http_code, redirect_url = parts[0], int(parts[1]), parts[2].strip()
+    if len(body) > max_bytes:
+        raise ValueError(f"Response exceeds {max_bytes} bytes")
+    if 300 <= http_code < 400 and redirect_url:
+        return _DummyResponse(http_code, ""), redirect_url
+    return _DummyResponse(http_code, body), None
+
+
+def fetch_public_url(url, timeout=10, max_bytes=FEED_MAX_BYTES, headers=None):
+    """GET a user-supplied URL with SSRF protections.
+
+    Every hop (initial URL and each redirect) must be http(s) and resolve only to
+    public addresses; the actual connected peer is re-checked to defeat DNS
+    rebinding, and the body is capped at *max_bytes*. Raises UnsafeURLError for
+    disallowed targets.
+    """
+    req_headers = {"User-Agent": "ShadowBroker-OSINT/1.0 (live-risk-dashboard)"}
+    if headers:
+        req_headers.update(headers)
+
+    current = url
+    for _ in range(FEED_MAX_REDIRECTS + 1):
+        host, port, ips = validate_public_url(current)
+        try:
+            with _public_session.get(current, timeout=(min(3, timeout), timeout),
+                                     headers=req_headers, allow_redirects=False,
+                                     stream=True) as res:
+                if res.is_redirect:
+                    location = res.headers.get("Location", "")
+                    if not location:
+                        return _DummyResponse(res.status_code, "")
+                    current = urljoin(current, location)
+                    continue
+                body = _read_capped(res, max_bytes)
+                text = body.decode(res.encoding or "utf-8", errors="replace")
+                return _DummyResponse(res.status_code, text)
+        except (requests.RequestException, ConnectionError, TimeoutError) as e:
+            logger.warning(f"Python requests failed for {current} ({e}), falling back to pinned curl...")
+            response, redirect_url = _curl_fetch_pinned(
+                current, host, port, ips[0], timeout, req_headers, max_bytes)
+            if redirect_url is None:
+                return response
+            current = urljoin(current, redirect_url)
+    raise UnsafeURLError(f"Too many redirects fetching {url}")
