@@ -172,7 +172,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                 setFeedMsg({ type: "ok", text: "Feeds saved. Changes take effect on next news refresh (~30min) or manual /api/refresh." });
             } else {
                 const d = await res.json().catch(() => ({}));
-                setFeedMsg({ type: "err", text: d.message || "Save failed" });
+                setFeedMsg({ type: "err", text: d.message || d.detail || "Save failed" });
             }
         } catch (e) {
             setFeedMsg({ type: "err", text: "Network error" });

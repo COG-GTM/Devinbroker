@@ -4,7 +4,7 @@ import logging
 import concurrent.futures
 import requests
 import feedparser
-from services.network_utils import fetch_with_curl
+from services.network_utils import fetch_public_url
 from services.fetchers._store import latest_data, _data_lock, _mark_fresh
 from services.fetchers.retry import with_retry
 
@@ -164,7 +164,7 @@ def fetch_news():
     def _fetch_feed(item):
         source_name, url = item
         try:
-            xml_data = fetch_with_curl(url, timeout=10).text
+            xml_data = fetch_public_url(url, timeout=10).text
             return source_name, feedparser.parse(xml_data)
         except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
             logger.warning(f"Feed {source_name} failed: {e}")

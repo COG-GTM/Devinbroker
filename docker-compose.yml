@@ -10,6 +10,8 @@ services:
       - OPENSKY_CLIENT_ID=${OPENSKY_CLIENT_ID}
       - OPENSKY_CLIENT_SECRET=${OPENSKY_CLIENT_SECRET}
       - LTA_ACCOUNT_KEY=${LTA_ACCOUNT_KEY}
+      # Required to use Settings / news-feed / system-update endpoints (disabled while empty).
+      - ADMIN_KEY=${ADMIN_KEY:-}
       # Override allowed CORS origins (comma-separated). Auto-detects LAN IPs if empty.
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     volumes:
