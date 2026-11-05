@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 GITHUB_RELEASES_URL = "https://api.github.com/repos/BigBodyCobain/Shadowbroker/releases/latest"
 
+BACKUP_DIR = os.path.join(tempfile.gettempdir(), "sb_update_backups")
+_MAX_BACKUPS = 3
+
 # ---------------------------------------------------------------------------
 # Protected patterns — files/dirs that must NEVER be overwritten during update
 # ---------------------------------------------------------------------------
@@ -100,10 +103,29 @@ def _download_release(temp_dir: str) -> tuple:
 # ---------------------------------------------------------------------------
 # Backup
 # ---------------------------------------------------------------------------
-def _backup_current(project_root: str, temp_dir: str) -> str:
-    """Create a backup zip of backend/ and frontend/ in temp_dir."""
+def _prune_backups(backup_dir: str, keep: int = _MAX_BACKUPS) -> None:
+    """Delete all but the newest *keep* backup zips in backup_dir."""
+    try:
+        backups = sorted(
+            (os.path.join(backup_dir, f) for f in os.listdir(backup_dir)
+             if f.startswith("backup_") and f.endswith(".zip")),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+    except OSError:
+        return
+    for old in backups[keep:]:
+        try:
+            os.remove(old)
+        except OSError as e:
+            logger.warning(f"Could not remove old backup {old}: {e}")
+
+
+def _backup_current(project_root: str, backup_dir: str) -> str:
+    """Create a backup zip of backend/ and frontend/ in backup_dir."""
+    os.makedirs(backup_dir, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = os.path.join(temp_dir, f"backup_{stamp}.zip")
+    backup_path = os.path.join(backup_dir, f"backup_{stamp}.zip")
     logger.info(f"Backing up current files to {backup_path} ...")
 
     dirs_to_backup = ["backend", "frontend"]
@@ -247,7 +269,8 @@ def perform_update(project_root: str) -> dict:
     temp_dir = tempfile.mkdtemp(prefix="sb_update_")
     try:
         zip_path, version, url = _download_release(temp_dir)
-        backup_path = _backup_current(project_root, temp_dir)
+        backup_path = _backup_current(project_root, BACKUP_DIR)
+        _prune_backups(BACKUP_DIR)
         copied = _extract_and_copy(zip_path, project_root, temp_dir)
 
         return {
@@ -263,3 +286,5 @@ def perform_update(project_root: str) -> dict:
             "status": "error",
             "message": str(e),
         }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

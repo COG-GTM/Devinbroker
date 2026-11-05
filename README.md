@@ -383,6 +383,7 @@ services:
       - OPENSKY_CLIENT_SECRET=                   # Optional — paired with Client ID above
       - LTA_ACCOUNT_KEY=                         # Optional — Singapore CCTV cameras
       - CORS_ORIGINS=                            # Optional — comma-separated allowed origins
+      - ADMIN_KEY=                               # Required for Settings/update — e.g. `openssl rand -hex 32`
     volumes:
       - backend_data:/app/data
     restart: unless-stopped
@@ -599,7 +600,12 @@ AIS_API_KEY=your_aisstream_key                # Maritime vessel tracking (aisstr
 OPENSKY_CLIENT_ID=your_opensky_client_id      # OAuth2 — higher rate limits for flight data
 OPENSKY_CLIENT_SECRET=your_opensky_secret     # OAuth2 — paired with Client ID above
 LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
+
+# Admin (required for Settings → API keys, news feed edits and system update)
+ADMIN_KEY=your_random_admin_key               # e.g. `openssl rand -hex 32`; enter the same value in Settings → Admin Key
 ```
+
+> Admin endpoints fail closed: when `ADMIN_KEY` is unset they return `403`. For Docker Compose, put `ADMIN_KEY` in the repo-root `.env` (it is passed to the backend container); for Helm, add an `ADMIN_KEY` entry to the `shadowbroker-env` secret.
 
 ### Frontend
 
