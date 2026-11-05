@@ -28,6 +28,10 @@ shadowbroker:
               secretKeyRef:
                 name: shadowbroker-env
                 key: OPENSKY_CLIENT_SECRET
+            ADMIN_KEY:
+              secretKeyRef:
+                name: shadowbroker-env
+                key: ADMIN_KEY
 
     frontend:
       type: deployment

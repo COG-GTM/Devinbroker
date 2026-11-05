@@ -50,6 +50,7 @@ from slowapi.errors import RateLimitExceeded
 from services.schemas import HealthResponse, RefreshResponse
 import uvicorn
 import hashlib
+import secrets
 import json as json_mod
 import socket
 import threading
@@ -58,19 +59,20 @@ limiter = Limiter(key_func=get_remote_address)
 
 # ---------------------------------------------------------------------------
 # Admin authentication — protects settings & system endpoints
-# Set ADMIN_KEY in .env or Docker secrets. If unset, endpoints remain open
-# for local-dev convenience but will log a startup warning.
+# Set ADMIN_KEY (or ADMIN_KEY_FILE) in .env, compose, Helm or Docker secrets.
+# Fails closed: if ADMIN_KEY is unset, every admin endpoint returns 403.
 # ---------------------------------------------------------------------------
-_ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+_ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 if not _ADMIN_KEY:
-    logger.warning("ADMIN_KEY is not set — sensitive endpoints are UNPROTECTED. "
-                   "Set ADMIN_KEY in .env or Docker secrets for production.")
+    logger.warning("ADMIN_KEY is not set — admin endpoints (settings, system update) are DISABLED. "
+                   "Set ADMIN_KEY in .env, docker-compose or Docker secrets to enable them.")
 
 def require_admin(request: Request):
     """FastAPI dependency that rejects requests without a valid X-Admin-Key header."""
     if not _ADMIN_KEY:
-        return  # No key configured — allow all (local dev)
-    if request.headers.get("X-Admin-Key") != _ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden — admin endpoints are disabled until ADMIN_KEY is configured")
+    provided = request.headers.get("X-Admin-Key", "")
+    if not secrets.compare_digest(provided.encode("utf-8"), _ADMIN_KEY.encode("utf-8")):
         raise HTTPException(status_code=403, detail="Forbidden — invalid or missing admin key")
 
 

@@ -63,6 +63,7 @@ The following environment variables are configured via secrets:
 - `AIS_API_KEY` - API key for AIS service
 - `OPENSKY_CLIENT_ID` - OpenSky client ID
 - `OPENSKY_CLIENT_SECRET` - OpenSky client secret
+- `ADMIN_KEY` - Admin key required (as the `X-Admin-Key` header) by the settings and system update endpoints; they return 403 when it is unset
 
 These can be injected using a Secret resource or Kubernetes ConfigMap.
 

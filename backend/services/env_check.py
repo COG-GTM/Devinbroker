@@ -15,7 +15,7 @@ _REQUIRED = {
 }
 
 _CRITICAL_WARN = {
-    "ADMIN_KEY": "Authentication for /api/settings and /api/system/update — endpoints are UNPROTECTED without it!",
+    "ADMIN_KEY": "Authentication for /api/settings and /api/system/update — these endpoints are DISABLED (403) without it",
 }
 
 _OPTIONAL = {
@@ -59,7 +59,7 @@ def validate_env(*, strict: bool = True) -> bool:
         if not value:
             logger.critical(
                 "🔓 CRITICAL: env var %s is not set — %s\n"
-                "   This is safe for local dev but MUST be set in production.",
+                "   Set it to enable admin features.",
                 key, desc,
             )
 

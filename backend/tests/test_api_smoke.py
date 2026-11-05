@@ -61,8 +61,10 @@ class TestDebugEndpoint:
 
 
 class TestSettingsEndpoints:
-    def test_get_api_keys(self, client):
-        r = client.get("/api/settings/api-keys")
+    def test_get_api_keys(self, client, monkeypatch):
+        import main
+        monkeypatch.setattr(main, "_ADMIN_KEY", "smoke-test-key")
+        r = client.get("/api/settings/api-keys", headers={"X-Admin-Key": "smoke-test-key"})
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
