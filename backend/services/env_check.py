@@ -23,6 +23,7 @@ _OPTIONAL = {
     "OPENSKY_CLIENT_ID": "OpenSky OAuth2 — gap-fill flights in Africa/Asia/LatAm",
     "OPENSKY_CLIENT_SECRET": "OpenSky OAuth2 — gap-fill flights in Africa/Asia/LatAm",
     "LTA_ACCOUNT_KEY": "Singapore LTA traffic cameras (CCTV layer)",
+    "AIS_FEED_TOKEN": "Local AIS-catcher ingest — POST /api/ais/feed is disabled without it",
 }
 
 

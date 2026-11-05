@@ -473,15 +473,21 @@ This starts:
 You can feed your own AIS ship data into ShadowBroker using an RTL-SDR dongle and [AIS-catcher](https://github.com/jvde-github/AIS-catcher), an open-source AIS decoder. This gives you real-time coverage of vessels in your local area — no API key needed.
 
 1. Plug in an RTL-SDR dongle
-2. Install AIS-catcher ([releases](https://github.com/jvde-github/AIS-catcher/releases)) or use the Docker image:
+2. Set a shared secret for the feed in the backend environment (the endpoint returns 403 until it is set):
+   ```bash
+   AIS_FEED_TOKEN=$(openssl rand -hex 32)
+   ```
+3. Install AIS-catcher ([releases](https://github.com/jvde-github/AIS-catcher/releases)) or use the Docker image, passing the token in the feed URL:
    ```bash
    docker run -d --device /dev/bus/usb \
-     ghcr.io/jvde-github/ais-catcher -H http://host.docker.internal:4000/api/ais/feed interval 10
+     ghcr.io/jvde-github/ais-catcher -H "http://host.docker.internal:4000/api/ais/feed?token=$AIS_FEED_TOKEN" interval 10
    ```
-3. Or run natively:
+4. Or run natively:
    ```bash
-   AIS-catcher -H http://localhost:4000/api/ais/feed interval 10
+   AIS-catcher -H "http://localhost:4000/api/ais/feed?token=$AIS_FEED_TOKEN" interval 10
    ```
+
+Other clients can send the token as an `X-AIS-Feed-Token` header or `Authorization: Bearer <token>` instead; prefer a header where your client supports it. The token travels in clear text over `http://`, and a `?token=` URL can end up in access logs, so keep the feed on localhost/LAN, or put HTTPS in front of it if it crosses an untrusted network. Each request is limited to 1 MB / 1000 messages; malformed messages (non-numeric or out-of-range `lat`/`lon`, oversized strings) are rejected with 400.
 
 AIS-catcher decodes VHF radio signals on 161.975 MHz and 162.025 MHz and POSTs decoded vessel data to ShadowBroker every 10 seconds. Ships detected by your SDR antenna appear alongside the global AIS stream.
 
